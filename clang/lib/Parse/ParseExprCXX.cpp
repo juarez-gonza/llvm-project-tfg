@@ -3489,6 +3489,8 @@ ExprResult Parser::ParseRequiresExpression() {
   assert(Tok.is(tok::kw_requires) && "Expected 'requires' keyword");
   SourceLocation RequiresKWLoc = ConsumeToken(); // Consume 'requires'
 
+  fprintf(stderr, "### ParseRequiresExpression ###\n");
+
   llvm::SmallVector<ParmVarDecl *, 2> LocalParameterDecls;
   BalancedDelimiterTracker Parens(*this, tok::l_paren);
   if (Tok.is(tok::l_paren)) {

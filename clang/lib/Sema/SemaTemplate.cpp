@@ -12,10 +12,12 @@
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprConcepts.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/TypeVisitor.h"
@@ -9176,6 +9178,8 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
                                    Expr *ConstraintExpr) {
   DeclContext *DC = CurContext;
 
+  fprintf(stderr, "### ActOnConceptDefinition ###\n");
+
   if (!DC->getRedeclContext()->isFileContext()) {
     Diag(NameLoc,
       diag::err_concept_decls_may_only_appear_in_global_namespace_scope);
@@ -9235,6 +9239,9 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
   ActOnDocumentableDecl(NewDecl);
   if (AddToScope)
     PushOnScopeChains(NewDecl, S);
+
+  TryInstantiateVirtualConcept(NewDecl);
+
   return NewDecl;
 }
 
@@ -11791,3 +11798,108 @@ SourceLocation Sema::getTopMostPointOfInstantiation(const NamedDecl *N) const {
   }
   return N->getLocation();
 }
+
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
+
+namespace tfg {
+namespace impl {
+struct isInstantiationDependent {
+  template <typename T,
+            typename = std::enable_if_t<
+                std::is_member_function_pointer_v<decltype(&T::getType)>>>
+  bool operator()(T *X) const {
+    QualType Ty = X->getType();
+    return Ty->isTemplateTypeParmType() || Ty->isInstantiationDependentType();
+  }
+}; // isInstantiationDependent
+
+struct countInstantiationDependent {
+  template <typename T,
+            typename = std::enable_if_t<
+                std::is_member_function_pointer_v<decltype(&T::getType)>>>
+  /* difference_type*/
+  auto operator()(ArrayRef<T *> Xs) const {
+    return std::count_if(Xs.begin(), Xs.end(), isInstantiationDependent{});
+  }
+}; // countInstantiationDependent
+
+} // namespace impl
+
+static constexpr inline auto isInstantiationDependent =
+    tfg::impl::isInstantiationDependent{};
+static constexpr inline auto countInstantiationDependent =
+    tfg::impl::countInstantiationDependent{};
+} // namespace tfg
+
+class IsConceptVirtualizable : public RecursiveASTVisitor<IsConceptVirtualizable>
+{
+  Sema &SemaRef;
+  bool Return = false;
+
+public:
+  IsConceptVirtualizable(Sema &SemaRef) : SemaRef(SemaRef) {}
+
+  bool operator()(ConceptDecl* D) {
+    TraverseDecl(D);
+    return Return;
+  }
+
+  bool VisitConceptDecl(const ConceptDecl* D) {
+    // Only concepts with one template parameter can be virtual concepts
+    return D->getTemplateParameters()->size() == 1;
+  }
+
+  bool VisitRequiresExpr(const RequiresExpr *E) {
+    // The template parameter of the concept must be among the requires
+    // parameter only once
+    if (tfg::countInstantiationDependent(E->getLocalParameters()) != 1)
+      return false;
+
+    // Apparently there is no VisitXYZ for (simple|type|compound|nested)-requirement
+    // so we will check stuff on Requirements right here
+    auto IsValidReq = [](concepts::Requirement *R) -> bool {
+      // Only compound-requirement allowed atm
+      if (R->getKind() != concepts::Requirement::RK_Compound)
+        return false;
+
+      auto *CompoundReq = cast<concepts::ExprRequirement>(R);
+
+      // Only CallExpr inside compound-requirement supported atm.
+      // We check that the template param shows up only once, again.
+      if (auto *Call = dyn_cast<CallExpr>(CompoundReq->getExpr());
+          Call == nullptr || tfg::countInstantiationDependent(llvm::ArrayRef{
+                                 Call->getArgs(), Call->getNumArgs()}) != 1)
+        return false;
+
+      // There must be a type constraint for the return-type-requirement
+      if (auto &ReturnReq = CompoundReq->getReturnTypeRequirement();
+          ReturnReq.isEmpty() || !ReturnReq.isTypeConstraint())
+        return false;
+
+      return true;
+    };
+
+    ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
+
+    bool ValidReqs = std::all_of(Reqs.begin(), Reqs.end(), IsValidReq);
+
+    Return = ValidReqs;
+
+    return ValidReqs;
+  }
+};
+
+void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
+  assert(D != nullptr && "Concept Declaration cannot be nullptr");
+  fprintf(stderr, "\n\n\n### TryInstantiateVirtualConcept ###\n");
+
+  if (IsConceptVirtualizable TestVC(*this); !TestVC(D)) {
+    fprintf(stderr, "### Cannot turn this concept into a virtual concept ###\n\n\n");
+    return;
+  }
+  fprintf(stderr, "### Concept is virtualizable ###\n\n\n");
+
+  // TODO: generate code here
+};

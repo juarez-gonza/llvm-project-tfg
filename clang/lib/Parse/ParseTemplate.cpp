@@ -395,6 +395,8 @@ Parser::ParseConceptDefinition(const ParsedTemplateInfo &TemplateInfo,
   assert(Tok.is(tok::kw_concept) &&
          "ParseConceptDefinition must be called when at a 'concept' keyword");
 
+  fprintf(stderr, "### ParseConceptDefinition ###\n");
+
   ConsumeToken(); // Consume 'concept'
 
   SourceLocation BoolKWLoc;
