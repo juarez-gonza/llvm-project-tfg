@@ -9026,6 +9026,93 @@ Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc) {
 }
 
 concepts::Requirement *
+Sema::ActOnCompoundRequirement(Expr *E, TypeResult Ty,
+                               SourceLocation NoexceptLoc,
+                               ParmVarDecl *RequiresParam, unsigned Depth) {
+  assert(Ty.isUsable() && "TypeResult::isUsable() must return true" &&
+         RequiresParam != nullptr);
+
+  {
+    // For now, we only allow simple-type-specifiers that are not placeholders
+    // nor template dependent.
+    QualType T = Ty.get().get();
+    if (T->isTemplateTypeParmType() || T->isInstantiationDependentType())
+      return nullptr;
+  }
+
+  // 1. Create a concept that uses a TypeTraitExpr built from __is_same.
+  // 1.1. Create a first TemplateTypeParmDecl and use it as first argument
+  // 1.2. Pass in Ty as second argument.
+  //
+  // 2. Use this new concept to create an actual compound requirement (sort of
+  // like std::same_as<TemplateTypeParmDecl, Ty>).
+
+  // Parsed Type Info and TypeTraitExpr's second argument
+  TypeSourceInfo *TyInfo;
+  GetTypeFromParser(ParsedType::getFromOpaquePtr(Ty.get().getAsOpaquePtr()),
+                    &TyInfo);
+
+  // ConceptDecl's template parameter and TypeTraitExpr's first argument
+  auto &TParamInfo = Context.Idents.get("is-same-expr-type");
+  auto *TParam = TemplateTypeParmDecl::Create(
+      Context, CurContext, SourceLocation(), SourceLocation(), Depth + 1,
+      /*Index=*/0, &TParamInfo,
+      /*Typename=*/true,
+      /*ParameterPack=*/false,
+      /*HasTypeConstraint=*/false);
+
+  TParam->setDefaultArgument(RequiresParam->getTypeSourceInfo());
+  // BTT_IsSame is the __is_same type trait (__is_same_as) in GCC. See
+  // TokenKinds.def file for its definition.
+  auto *IsSameTrait = TypeTraitExpr::Create(
+      Context, Context.getLogicalOperationType(), SourceLocation(), BTT_IsSame,
+      ArrayRef<TypeSourceInfo *>{TParam->getDefaultArgumentInfo(), TyInfo},
+      SourceLocation(), false);
+
+  // Create a Concept like Same using the built-in __is_same_as.
+  auto &IsSameConceptInfo = Context.Idents.get("is-same-concept-constraint");
+  auto *ConceptTPL = TemplateParameterList::Create(
+      Context, SourceLocation(), SourceLocation(),
+      ArrayRef<NamedDecl *>(TParam), SourceLocation(),
+      /*RequiresClause=*/nullptr);
+  auto *IsSameConcept =
+      ConceptDecl::Create(Context, CurContext->getParent(), SourceLocation(),
+                          &IsSameConceptInfo, ConceptTPL, IsSameTrait);
+  DeclarationNameInfo ConceptName((DeclarationName(&IsSameConceptInfo)),
+                                  SourceLocation());
+
+  // Now we proceed similar to the main implementation of
+  // ActOnCompoundRequirement, the one with this signature
+  // Sema::ActOnCompoundRequirement(Expr*, SourceLocation, CXXScopeSpec&,
+  // TemplaIdAnnotation*, unsigned) The main difference is that we do not have a
+  // TempalteIdAnnotation nor source location, since our TypeConstraint is
+  // created on the fly, so the next part is made by careful copy-pasting from
+  // that function and Sema::BuildTypeConstraint(...).
+
+  auto &II = Context.Idents.get("expr-type");
+  auto *InventedParam = TemplateTypeParmDecl::Create(
+      Context, CurContext, SourceLocation(), SourceLocation(), Depth,
+      /*Index=*/0, &II,
+      /*Typename=*/true,
+      /*ParameterPack=*/false,
+      /*HasTypeConstraint=*/true);
+
+  AttachTypeConstraint(NestedNameSpecifierLoc(), ConceptName, IsSameConcept,
+                       nullptr, InventedParam, SourceLocation());
+
+  auto *TPL = TemplateParameterList::Create(
+      Context, SourceLocation(), SourceLocation(),
+      ArrayRef<NamedDecl *>(InventedParam), SourceLocation(),
+      /*RequiresClause=*/nullptr);
+
+  return BuildExprRequirement(
+      E, /*IsSimple=*/false, NoexceptLoc,
+      concepts::ExprRequirement::ReturnTypeRequirement(TPL));
+}
+
+// fprintf TFG Juarez: Add new ActOnCompoundRequirement for simple-type-specifiers
+
+concepts::Requirement *
 Sema::ActOnCompoundRequirement(
     Expr *E, SourceLocation NoexceptLoc, CXXScopeSpec &SS,
     TemplateIdAnnotation *TypeConstraint, unsigned Depth) {

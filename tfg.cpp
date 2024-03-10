@@ -1,3 +1,7 @@
+#include <iostream>
+#include <string>
+
+/*
 // Non-virtualizable concept
 template<typename T>
 concept Fooable = requires (T x) {
@@ -27,11 +31,24 @@ concept Unusable = requires(T x, int y) {
 };
 
 // Virtualizable
+//template<typename T>
+//concept Usable = requires(T x, int y) {
+//  { use(x, y) } noexcept -> int;
+//};
+*/
+
+std::string use(char x) {
+  return {x};
+}
+
 template<typename T>
-concept Usable = requires(T x, int y) {
-  { use(x, y) } noexcept -> Unusable;
+concept Usable = requires(T x) {
+  { use(x) } -> std::string;
 };
 
+static_assert(Usable<char>, "LA PUTA MADRE");
+
 int main() {
+  std::cout << use('c') << "\n";
   return 0;
 }

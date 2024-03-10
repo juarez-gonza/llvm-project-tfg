@@ -3489,8 +3489,6 @@ ExprResult Parser::ParseRequiresExpression() {
   assert(Tok.is(tok::kw_requires) && "Expected 'requires' keyword");
   SourceLocation RequiresKWLoc = ConsumeToken(); // Consume 'requires'
 
-  fprintf(stderr, "### ParseRequiresExpression ###\n");
-
   llvm::SmallVector<ParmVarDecl *, 2> LocalParameterDecls;
   BalancedDelimiterTracker Parens(*this, tok::l_paren);
   if (Tok.is(tok::l_paren)) {
@@ -3586,6 +3584,20 @@ ExprResult Parser::ParseRequiresExpression() {
           break;
         }
         if (!isTypeConstraintAnnotation()) {
+          // Atm, we will only allow undeduced simple-type-specifier for the
+          // extended syntax Right here it is only parsed, but this info will be
+          // checked. LEWG does not like this
+          // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p1452r2.html
+          auto Ty = ParseTypeName();
+          if (Ty.isUsable() && LocalParameterDecls.size() == 1) {
+            Req = Actions.ActOnCompoundRequirement(
+                Expression.get(), Ty, NoexceptLoc, LocalParameterDecls.front(),
+                TemplateParameterDepth);
+            if (Req)
+              Requirements.push_back(Req);
+            break;
+          }
+
           Diag(Tok, diag::err_requires_expr_expected_type_constraint);
           SkipUntil(tok::semi, tok::r_brace, SkipUntilFlags::StopBeforeMatch);
           break;
@@ -3594,7 +3606,7 @@ ExprResult Parser::ParseRequiresExpression() {
         if (Tok.is(tok::annot_cxxscope)) {
           Actions.RestoreNestedNameSpecifierAnnotation(Tok.getAnnotationValue(),
                                                        Tok.getAnnotationRange(),
-                                                       SS);
+                                                        SS);
           ConsumeAnnotationToken();
         }
 

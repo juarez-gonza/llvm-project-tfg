@@ -9178,8 +9178,6 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
                                    Expr *ConstraintExpr) {
   DeclContext *DC = CurContext;
 
-  fprintf(stderr, "### ActOnConceptDefinition ###\n");
-
   if (!DC->getRedeclContext()->isFileContext()) {
     Diag(NameLoc,
       diag::err_concept_decls_may_only_appear_in_global_namespace_scope);

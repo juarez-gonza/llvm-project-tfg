@@ -8806,7 +8806,14 @@ public:
   concepts::Requirement *
   ActOnCompoundRequirement(
       Expr *E, SourceLocation NoexceptLoc, CXXScopeSpec &SS,
-      TemplateIdAnnotation *TypeConstraint, unsigned Depth);
+			   TemplateIdAnnotation *TypeConstraint, unsigned Depth);
+  // TFG Juarez Start
+  concepts::Requirement *ActOnCompoundRequirement(Expr *E, TypeResult T,
+                                                  SourceLocation NoexceptLoc,
+                                                  ParmVarDecl *RequiresParm,
+                                                  unsigned Depth);
+  // TFG Juarez End
+
   concepts::Requirement *ActOnNestedRequirement(Expr *Constraint);
   concepts::ExprRequirement *
   BuildExprRequirement(

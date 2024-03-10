@@ -245,7 +245,6 @@ ExprResult Parser::ParseCaseExpression(SourceLocation CaseLoc) {
 ///         logical-or-expression
 /// \endverbatim
 ExprResult Parser::ParseConstraintExpression() {
-  fprintf(stderr, "### ParseConstraintExpression ###\n");
   EnterExpressionEvaluationContext ConstantEvaluated(
       Actions, Sema::ExpressionEvaluationContext::Unevaluated);
   ExprResult LHS(ParseCastExpression(AnyCastExpr));
@@ -1723,7 +1722,6 @@ ExprResult Parser::ParseCastExpression(CastParseKind ParseKind,
     break;
 
   case tok::kw_requires: // [C++2a] requires-expression
-    fprintf(stderr, "### ParseCastExpression ###\n");
     Res = ParseRequiresExpression();
     AllowSuffix = false;
     break;
