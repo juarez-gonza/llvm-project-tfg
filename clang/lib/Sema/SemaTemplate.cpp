@@ -35,6 +35,7 @@
 #include "clang/Sema/Overload.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
+#include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
@@ -11812,7 +11813,12 @@ struct isInstantiationDependent {
     return Ty->isTemplateTypeParmType() || Ty->isInstantiationDependentType();
   }
 }; // isInstantiationDependent
+} // namespace impl
 
+static constexpr inline auto isInstantiationDependent =
+    tfg::impl::isInstantiationDependent{};
+
+namespace impl {
 struct countInstantiationDependent {
   template <typename T,
             typename = std::enable_if_t<
@@ -11822,29 +11828,28 @@ struct countInstantiationDependent {
     return std::count_if(Xs.begin(), Xs.end(), isInstantiationDependent{});
   }
 }; // countInstantiationDependent
-
 } // namespace impl
 
-static constexpr inline auto isInstantiationDependent =
-    tfg::impl::isInstantiationDependent{};
 static constexpr inline auto countInstantiationDependent =
     tfg::impl::countInstantiationDependent{};
-} // namespace tfg
 
-class IsConceptVirtualizable : public RecursiveASTVisitor<IsConceptVirtualizable>
-{
+namespace impl {
+class IsConceptVirtualizable
+    : public RecursiveASTVisitor<IsConceptVirtualizable> {
+private:
   Sema &SemaRef;
   bool Return = false;
 
 public:
   IsConceptVirtualizable(Sema &SemaRef) : SemaRef(SemaRef) {}
-
-  bool operator()(ConceptDecl* D) {
+  bool operator()(ConceptDecl *D) {
     TraverseDecl(D);
     return Return;
   }
 
-  bool VisitConceptDecl(const ConceptDecl* D) {
+  friend bool IsConceptVirtualizablePred(Sema &SemaRef, ConceptDecl *D);
+
+  bool VisitConceptDecl(const ConceptDecl *D) {
     // Only concepts with one template parameter can be virtual concepts
     return D->getTemplateParameters()->size() == 1;
   }
@@ -11855,8 +11860,9 @@ public:
     if (tfg::countInstantiationDependent(E->getLocalParameters()) != 1)
       return false;
 
-    // Apparently there is no VisitXYZ for (simple|type|compound|nested)-requirement
-    // so we will check stuff on Requirements right here
+    // Apparently there is no VisitXYZ for
+    // (simple|type|compound|nested)-requirement so we will check stuff on
+    // Requirements right here
     auto IsValidReq = [](concepts::Requirement *R) -> bool {
       // Only compound-requirement allowed atm
       if (R->getKind() != concepts::Requirement::RK_Compound)
@@ -11887,17 +11893,28 @@ public:
 
     return ValidReqs;
   }
+}; // IsConceptVirtualizable
+} // namespace impl
+
+static constexpr inline auto isConceptVirtualizable = [](Sema &SemaRef,
+                                                         ConceptDecl *D) {
+  return tfg::impl::IsConceptVirtualizable{SemaRef}(D);
 };
+} // namespace tfg
 
 void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   assert(D != nullptr && "Concept Declaration cannot be nullptr");
   fprintf(stderr, "\n\n\n### TryInstantiateVirtualConcept ###\n");
 
-  if (IsConceptVirtualizable TestVC(*this); !TestVC(D)) {
+  if (!tfg::isConceptVirtualizable(*this, D)) {
     fprintf(stderr, "### Cannot turn this concept into a virtual concept ###\n\n\n");
     return;
   }
   fprintf(stderr, "### Concept is virtualizable ###\n\n\n");
 
   // TODO: generate code here
+  // Context: ASTContext, CurContext: DeclContext
+  auto *Base = CXXRecordDecl::CreateVirtualConceptBase(Context, CurContext, D->getBeginLoc());
+
+  // C.getTypeDeclType(R, /*PrevDecl=*/nullptr);
 };
