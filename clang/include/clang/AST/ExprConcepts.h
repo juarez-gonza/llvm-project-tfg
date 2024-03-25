@@ -288,10 +288,18 @@ public:
       SS_Satisfied
   };
   class ReturnTypeRequirement {
-      llvm::PointerIntPair<
-          llvm::PointerUnion<TemplateParameterList *, SubstitutionDiagnostic *>,
-          1, bool>
-          TypeConstraintInfo;
+    llvm::PointerIntPair<
+        llvm::PointerUnion<TemplateParameterList *, SubstitutionDiagnostic *>,
+        1, bool>
+        TypeConstraintInfo;
+    //===--------------------------------------------------------------------===//
+    // C++ Virtual Concepts (TFG Gonzalo Juarez)
+    //===--------------------------------------------------------------------===//
+    TypeSourceInfo *ReturnTypeInfo = nullptr;
+    //===--------------------------------------------------------------------===//
+    // C++ Virtual Concepts (TFG Gonzalo Juarez)
+    //===--------------------------------------------------------------------===//
+
   public:
       friend ASTStmtReader;
       friend ASTStmtWriter;
@@ -310,17 +318,27 @@ public:
       // TODO: Can we maybe not save the whole template parameter list and just
       //  the type constraint? Saving the whole TPL makes it easier to handle in
       //  serialization but is less elegant.
-      ReturnTypeRequirement(TemplateParameterList *TPL);
+    ReturnTypeRequirement(TemplateParameterList *TPL);
 
-      bool isDependent() const {
-        return TypeConstraintInfo.getInt();
-      }
+    //===--------------------------------------------------------------------===//
+    // C++ Virtual Concepts (TFG Gonzalo Juarez)
+    //===--------------------------------------------------------------------===//
+    ReturnTypeRequirement(TemplateParameterList *TPL,
+                          TypeSourceInfo *ReturnTypeInfo)
+        : ReturnTypeRequirement(TPL) {
+      this->ReturnTypeInfo = ReturnTypeInfo;
+    }
+    //===--------------------------------------------------------------------===//
+    // C++ Virtual Concepts (TFG Gonzalo Juarez)
+    //===--------------------------------------------------------------------===//
 
-      bool containsUnexpandedParameterPack() const {
-        if (!isTypeConstraint())
-          return false;
-        return getTypeConstraintTemplateParameterList()
-                ->containsUnexpandedParameterPack();
+    bool isDependent() const { return TypeConstraintInfo.getInt(); }
+
+    bool containsUnexpandedParameterPack() const {
+      if (!isTypeConstraint())
+        return false;
+      return getTypeConstraintTemplateParameterList()
+          ->containsUnexpandedParameterPack();
       }
 
       bool isEmpty() const {
@@ -349,6 +367,7 @@ public:
         return TypeConstraintInfo.getPointer().get<TemplateParameterList *>();
       }
   };
+
 private:
   llvm::PointerUnion<Expr *, SubstitutionDiagnostic *> Value;
   SourceLocation NoexceptLoc; // May be empty if noexcept wasn't specified.

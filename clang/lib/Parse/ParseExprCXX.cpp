@@ -3588,10 +3588,10 @@ ExprResult Parser::ParseRequiresExpression() {
           // extended syntax Right here it is only parsed, but this info will be
           // checked. LEWG does not like this
           // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p1452r2.html
-          auto Ty = ParseTypeName();
-          if (Ty.isUsable() && LocalParameterDecls.size() == 1) {
+          auto ReturnTypeResult = ParseTypeName();
+          if (ReturnTypeResult.isUsable() && LocalParameterDecls.size() == 1) {
             Req = Actions.ActOnCompoundRequirement(
-                Expression.get(), Ty, NoexceptLoc, LocalParameterDecls.front(),
+                Expression.get(), ReturnTypeResult, NoexceptLoc, LocalParameterDecls.front(),
                 TemplateParameterDepth);
             if (Req)
               Requirements.push_back(Req);

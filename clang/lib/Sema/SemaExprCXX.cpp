@@ -9026,17 +9026,18 @@ Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc) {
 }
 
 concepts::Requirement *
-Sema::ActOnCompoundRequirement(Expr *E, TypeResult Ty,
+Sema::ActOnCompoundRequirement(Expr *E, TypeResult ReturnTypeResult,
                                SourceLocation NoexceptLoc,
                                ParmVarDecl *RequiresParam, unsigned Depth) {
-  assert(Ty.isUsable() && "TypeResult::isUsable() must return true" &&
-         RequiresParam != nullptr);
+  assert(ReturnTypeResult.isUsable() &&
+         "TypeResult::isUsable() must return true" && RequiresParam != nullptr);
 
   {
     // For now, we only allow simple-type-specifiers that are not placeholders
     // nor template dependent.
-    QualType T = Ty.get().get();
-    if (T->isTemplateTypeParmType() || T->isInstantiationDependentType())
+    QualType RetType = ReturnTypeResult.get().get();
+    if (RetType->isTemplateTypeParmType() ||
+        RetType->isInstantiationDependentType())
       return nullptr;
   }
 
@@ -9048,9 +9049,9 @@ Sema::ActOnCompoundRequirement(Expr *E, TypeResult Ty,
   // like std::same_as<TemplateTypeParmDecl, Ty>).
 
   // Parsed Type Info and TypeTraitExpr's second argument
-  TypeSourceInfo *TyInfo;
-  GetTypeFromParser(ParsedType::getFromOpaquePtr(Ty.get().getAsOpaquePtr()),
-                    &TyInfo);
+  TypeSourceInfo *ReturnTypeInfo;
+  GetTypeFromParser(ParsedType::getFromOpaquePtr(ReturnTypeResult.get().getAsOpaquePtr()),
+                    &ReturnTypeInfo);
 
   // ConceptDecl's template parameter and TypeTraitExpr's first argument
   auto &TParamInfo = Context.Idents.get("is-same-expr-type");
@@ -9066,7 +9067,7 @@ Sema::ActOnCompoundRequirement(Expr *E, TypeResult Ty,
   // TokenKinds.def file for its definition.
   auto *IsSameTrait = TypeTraitExpr::Create(
       Context, Context.getLogicalOperationType(), SourceLocation(), BTT_IsSame,
-      ArrayRef<TypeSourceInfo *>{TParam->getDefaultArgumentInfo(), TyInfo},
+      ArrayRef<TypeSourceInfo *>{TParam->getDefaultArgumentInfo(), ReturnTypeInfo},
       SourceLocation(), false);
 
   // Create a Concept like Same using the built-in __is_same_as.
@@ -9107,7 +9108,7 @@ Sema::ActOnCompoundRequirement(Expr *E, TypeResult Ty,
 
   return BuildExprRequirement(
       E, /*IsSimple=*/false, NoexceptLoc,
-      concepts::ExprRequirement::ReturnTypeRequirement(TPL));
+			      concepts::ExprRequirement::ReturnTypeRequirement(TPL, ReturnTypeInfo));
 }
 
 // fprintf TFG Juarez: Add new ActOnCompoundRequirement for simple-type-specifiers

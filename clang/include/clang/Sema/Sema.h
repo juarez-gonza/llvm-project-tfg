@@ -8808,7 +8808,8 @@ public:
       Expr *E, SourceLocation NoexceptLoc, CXXScopeSpec &SS,
 			   TemplateIdAnnotation *TypeConstraint, unsigned Depth);
   // TFG Juarez Start
-  concepts::Requirement *ActOnCompoundRequirement(Expr *E, TypeResult T,
+  concepts::Requirement *ActOnCompoundRequirement(Expr *E,
+                                                  TypeResult ReturnTypeResult,
                                                   SourceLocation NoexceptLoc,
                                                   ParmVarDecl *RequiresParm,
                                                   unsigned Depth);
