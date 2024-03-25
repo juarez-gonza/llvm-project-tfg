@@ -579,6 +579,18 @@ public:
                                      TypeSourceInfo *Info, SourceLocation Loc,
                                      unsigned DependencyKind, bool IsGeneric,
                                      LambdaCaptureDefault CaptureDefault);
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
+
+  static CXXRecordDecl *CreateVirtualConceptBase(const ASTContext &C,
+                                                 DeclContext *DC,
+                                                 SourceLocation Loc,
+                                                 IdentifierInfo *Id);
+
+  //===--------------------------------------------------------------------===//
+  // C++ Variadic Templates (C++0x [temp.variadic])
+  //===--------------------------------------------------------------------===//
   static CXXRecordDecl *CreateDeserialized(const ASTContext &C, unsigned ID);
 
   bool isDynamicClass() const {

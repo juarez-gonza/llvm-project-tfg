@@ -35,6 +35,7 @@
 #include "clang/Sema/Overload.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
+#include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
@@ -42,6 +43,8 @@
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <iterator>
 #include <optional>
@@ -9239,7 +9242,7 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
   if (AddToScope)
     PushOnScopeChains(NewDecl, S);
 
-  TryInstantiateVirtualConcept(NewDecl);
+  TryInstantiateVirtualConcept(NewDecl, S, AddToScope);
 
   return NewDecl;
 }
@@ -11804,7 +11807,7 @@ SourceLocation Sema::getTopMostPointOfInstantiation(const NamedDecl *N) const {
 
 namespace tfg {
 namespace impl {
-struct isInstantiationDependent {
+struct IsInstantiationDependent {
   template <typename T,
             typename = std::enable_if_t<
                 std::is_member_function_pointer_v<decltype(&T::getType)>>>
@@ -11816,22 +11819,22 @@ struct isInstantiationDependent {
 } // namespace impl
 
 static constexpr inline auto isInstantiationDependent =
-    tfg::impl::isInstantiationDependent{};
+    tfg::impl::IsInstantiationDependent{};
 
 namespace impl {
-struct countInstantiationDependent {
+struct CountInstantiationDependent {
   template <typename T,
             typename = std::enable_if_t<
                 std::is_member_function_pointer_v<decltype(&T::getType)>>>
   /* difference_type*/
   auto operator()(ArrayRef<T *> Xs) const {
-    return std::count_if(Xs.begin(), Xs.end(), isInstantiationDependent{});
+    return std::count_if(Xs.begin(), Xs.end(), IsInstantiationDependent{});
   }
 }; // countInstantiationDependent
 } // namespace impl
 
 static constexpr inline auto countInstantiationDependent =
-    tfg::impl::countInstantiationDependent{};
+    tfg::impl::CountInstantiationDependent{};
 
 namespace impl {
 class IsConceptVirtualizable
@@ -11846,8 +11849,6 @@ public:
     TraverseDecl(D);
     return Return;
   }
-
-  friend bool IsConceptVirtualizablePred(Sema &SemaRef, ConceptDecl *D);
 
   bool VisitConceptDecl(const ConceptDecl *D) {
     // Only concepts with one template parameter can be virtual concepts
@@ -11900,11 +11901,134 @@ static constexpr inline auto isConceptVirtualizable = [](Sema &SemaRef,
                                                          ConceptDecl *D) {
   return tfg::impl::IsConceptVirtualizable{SemaRef}(D);
 };
+
+// NOTE: Checking if the concept is virtualizable and generating functions
+// could be done in a single pass. To keep things simple for this first
+// implementation we will do it in two passes. The population function can
+// assume that the concept is virtualizable.
+namespace impl {
+class PopulateVirtualConcept
+    : public RecursiveASTVisitor<PopulateVirtualConcept> {
+  Sema &SemaRef;
+  ASTContext &Context;
+  ConceptDecl *Concept;
+  Scope *S;
+  CXXRecordDecl *Base;
+
+public:
+  PopulateVirtualConcept(Sema &SemaRef, ASTContext &Context,
+                         ConceptDecl *Concept, Scope *S, CXXRecordDecl *Base)
+      : SemaRef(SemaRef), Context(Context), Concept{Concept}, S{S}, Base{Base} {
+  }
+
+  void operator()() {
+    SemaRef.PushDeclContext(S, Base);
+    TraverseDecl(Concept);
+    SemaRef.PopDeclContext();
+  }
+
+  bool VisitRequiresExpr(const RequiresExpr *E) {
+    fprintf(stderr, "\n### VisitRequiresExpr ###\n");
+    ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
+    for (auto *Req : Reqs)
+      AddVirtualMethodFromReq(Base, Req);
+    return true;
+  }
+
+private:
+  CXXMethodDecl *AddVirtualMethodFromReq(CXXRecordDecl *Class,
+                                         concepts::Requirement *Req) {
+    auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
+    auto *Call = cast<CallExpr>(CompoundReq->getExpr());
+    auto *Callee = Call->getCallee();
+
+    auto Args = SmallVector<Expr *>{Call->getNumArgs() - 1};
+    for (auto *A : ArrayRef{Call->getArgs(), Call->getNumArgs()})
+      if (!isInstantiationDependent(
+              A)) // the instantiation dependent arg is `this` pointer
+        Args.push_back(A);
+
+    auto ArgTypes = SmallVector<QualType>{Args.size()};
+    for (auto *Arg : Args)
+      ArgTypes.push_back(Arg->getType());
+
+    // Get return type constraint
+    const auto *ReturnTypeInfo =
+        CompoundReq->getReturnTypeRequirement().getReturnTypeSourceInfo();
+
+    auto FunctionProtoType = SemaRef.Context.getFunctionType(
+        ReturnTypeInfo->getType(), ArgTypes, {});
+
+    // Get the compound requirement callee name, this will be used to create the
+    // virtual method
+    std::string CalleeName;
+    {
+      llvm::raw_string_ostream ss{CalleeName};
+      Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
+    }
+    std::string MethodName = llvm::formatv("tfg_virtual_{0}", CalleeName);
+    auto &MethodII = Context.Idents.get(MethodName);
+
+    CXXMethodDecl *Method = CXXMethodDecl::Create(
+        SemaRef.Context, Class, Callee->getExprLoc(),
+        DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
+        FunctionProtoType,
+        /*Tinfo=*/nullptr, SC_None,
+        SemaRef.getCurFPFeatures().isFPConstrained(),
+        /*isInline=*/true, ConstexprSpecKind::Unspecified, SourceLocation(),
+        /*TrailingRequiresClause=*/nullptr);
+
+    // Attach params
+    SmallVector<ParmVarDecl *> Params;
+    for (auto *Arg : Args)
+      if (!isInstantiationDependent(Arg))
+        Params.push_back(
+            ParmVarDecl::Create(SemaRef.Context, Method, Arg->getBeginLoc(),
+                                Arg->getExprLoc(), nullptr, Arg->getType(),
+                                Context.getTrivialTypeSourceInfo(
+                                    Arg->getType(), Arg->getBeginLoc()),
+                                SC_None, nullptr));
+
+    for (auto *P : Params)
+      P->setOwningFunction(Method);
+
+    // Method->setLexicalDeclContext(Class);
+    // Method->setLocation(LambdaLoc);
+    // Method->setInnerLocStart(CallOperatorLoc);
+    // Method->setTypeSourceInfo(MethodTyInfo);
+    // Method->setType(buildTypeForLambdaCallOperator(*this, LSI->Lambda,
+    //                                                TemplateParams,
+    //                                                MethodTyInfo));
+    // Method->setConstexprKind(ConstexprKind);
+    Method->setParams(Params);
+    Method->setAccess(AS_public);
+    Method->setIsPureVirtual();
+    fprintf(stderr, "\n##### Parent: %s, Method: %s #####\n",
+            Method->getParent()->getIdentifier()->getName().str().c_str(),
+            MethodName.c_str());
+    SemaRef.CheckPureMethod(Method, SourceRange());
+
+    SemaRef.PushOnScopeChains(Method, S);
+    return Method;
+  }
+}; // PopulateVirtualConcept
+} // namespace impl
+
+static constexpr inline auto populateVirtualConcept =
+    [](Sema &SemaRef, ASTContext &Context, ConceptDecl *Concept, Scope *S,
+       CXXRecordDecl *Base) {
+      assert(isConceptVirtualizable(SemaRef, Concept) &&
+             "Cannot populate a non-virtualizable concept");
+      tfg::impl::PopulateVirtualConcept{SemaRef, Context, Concept, S, Base}();
+    };
 } // namespace tfg
 
-void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
+void Sema::TryInstantiateVirtualConcept(ConceptDecl *D, Scope* S, bool AddToScope) {
   assert(D != nullptr && "Concept Declaration cannot be nullptr");
   fprintf(stderr, "\n\n\n### TryInstantiateVirtualConcept ###\n");
+
+  if (!AddToScope)
+    return;
 
   if (!tfg::isConceptVirtualizable(*this, D)) {
     fprintf(stderr, "### Cannot turn this concept into a virtual concept ###\n\n\n");
@@ -11912,9 +12036,22 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   }
   fprintf(stderr, "### Concept is virtualizable ###\n\n\n");
 
-  // TODO: generate code here
-  // Context: ASTContext, CurContext: DeclContext
-  auto *Base = CXXRecordDecl::CreateVirtualConceptBase(Context, CurContext, D->getBeginLoc());
+  std::string BaseName = llvm::formatv("tfg_virtual_{0}", D->getName());
 
-  // C.getTypeDeclType(R, /*PrevDecl=*/nullptr);
-};
+  // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that creats a record
+  // at the TU DeclContext, and this feature needs the record declaration at the same context level
+  // as the c++20 concept. However, do read that method and CXXRecordDecl::CreateLambda() because
+  // the following code stems from thoughtful copy and pasting
+  auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
+						       Context, CurContext, D->getBeginLoc(), &Context.Idents.get(BaseName));
+  tfg::populateVirtualConcept(*this, Context, D, S, Base);
+  Base->markAbstract();
+  Base->completeDefinition();
+
+  PushOnScopeChains(Base, S);
+  for (auto *decl : Base->methods())
+    fprintf(stderr, "##### %s #####",
+            decl->getDeclName().getAsString().c_str());
+
+  fprintf(stderr, "\n### Fin TryInstantiateVirtualConcept ###\n");
+}

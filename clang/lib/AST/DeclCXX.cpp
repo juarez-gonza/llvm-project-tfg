@@ -160,6 +160,25 @@ CXXRecordDecl::CreateLambda(const ASTContext &C, DeclContext *DC,
   return R;
 }
 
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
+
+CXXRecordDecl *
+CXXRecordDecl::CreateVirtualConceptBase(const ASTContext &C, DeclContext *DC, SourceLocation Loc, IdentifierInfo* Id) {
+  auto *R = new (C, DC) CXXRecordDecl(CXXRecord, TagTypeKind::Class, C, DC, Loc,
+                                      Loc, Id, nullptr);
+  R->startDefinition();
+  R->setImplicit(true);
+  C.getTypeDeclType(R, /*PrevDecl=*/nullptr);
+  DC->addDecl(R);
+  return R;
+}
+
+//===--------------------------------------------------------------------===//
+// C++ Variadic Templates (C++0x [temp.variadic])
+//===--------------------------------------------------------------------===//
+
 CXXRecordDecl *
 CXXRecordDecl::CreateDeserialized(const ASTContext &C, unsigned ID) {
   auto *R = new (C, ID)

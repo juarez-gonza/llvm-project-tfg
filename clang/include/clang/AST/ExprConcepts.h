@@ -366,6 +366,17 @@ public:
         assert(isTypeConstraint());
         return TypeConstraintInfo.getPointer().get<TemplateParameterList *>();
       }
+    //===--------------------------------------------------------------------===//
+    // C++ Virtual Concepts (TFG Gonzalo Juarez)
+    //===--------------------------------------------------------------------===//
+    const TypeSourceInfo* getReturnTypeSourceInfo() const
+    {
+      assert(ReturnTypeInfo != nullptr);
+      return ReturnTypeInfo;
+    }
+    //===--------------------------------------------------------------------===//
+    // C++ Virtual Concepts (TFG Gonzalo Juarez)
+    //===--------------------------------------------------------------------===//
   };
 
 private:
