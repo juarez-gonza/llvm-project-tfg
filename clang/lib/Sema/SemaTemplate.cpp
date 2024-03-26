@@ -11883,9 +11883,8 @@ public:
                                  Call->getArgs(), Call->getNumArgs()}) != 1)
         return false;
 
-      // There must be a type constraint for the return-type-requirement
       if (auto &ReturnReq = CompoundReq->getReturnTypeRequirement();
-          ReturnReq.isEmpty() || !ReturnReq.isTypeConstraint())
+          !ReturnReq.hasReturnTypeSourceInfo())
         return false;
 
       return true;
@@ -12011,6 +12010,7 @@ private:
     // Set public, virtual and check that I haven't screwed up while doing so
     Method->setAccess(AS_public);
     Method->setIsPureVirtual();
+    Method->setVirtualAsWritten(true);
     SemaRef.CheckPureMethod(Method, SourceRange());
     return Method;
   }
@@ -12038,7 +12038,7 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
 
   // The generated class "leaks" to the outer scope of the concept context
   // sort of like enum members do. Get the parent scope of the concept definition
-  Scope *ClassParentScope = getScopeForContext(D->getDeclContext());
+  Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
   std::string BaseName = llvm::formatv("tfg_virtual_{0}", D->getName());
 
   // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that
@@ -12047,23 +12047,27 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   // read that method and CXXRecordDecl::CreateLambda() because the following
   // code stems from thoughtful copy and pasting
   auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
-      Context, ClassParentScope->getEntity(), D->getBeginLoc(),
+      Context, BaseParentScope->getEntity(), D->getBeginLoc(),
       &Context.Idents.get(BaseName));
 
   // Create the necessary methods
   tfg::populateVirtualConcept(*this, D, Base);
 
-  // Mark the class as purely virtual
-  Base->markAbstract();
+  // assert(Base->getDestructor() != nullptr && "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+  // Base->getDestructor()->setIsPureVirtual(true);
 
   // Mark the class as implicit - not written in code - (see
   // ASTContext::buildImplicitRecord)
   Base->setImplicit();
   Base->addAttr(TypeVisibilityAttr::CreateImplicit(
-      const_cast<ASTContext &>(Context), TypeVisibilityAttr::Default));
+						   const_cast<ASTContext &>(Context), TypeVisibilityAttr::Default));
+
+  // Do not forget about the destructor
+  DefineVirtualConceptDestructor(Base);
 
   // End class definition
   Base->completeDefinition();
+  CheckCompletedCXXClass(BaseParentScope, Base);
 
   fprintf(stderr, "\n### Fin TryInstantiateVirtualConcept ###\n");
 }

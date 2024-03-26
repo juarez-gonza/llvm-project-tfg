@@ -1,5 +1,6 @@
 // #include <iostream>
 // #include <string>
+#include <stdio.h>
 
 /*
 // Non-virtualizable concept
@@ -55,7 +56,6 @@ concept UsableDouble = requires(T x) {
 };
 */
 
-
 template<typename T>
 concept Usable = requires(T x) {
   { use(x) } -> int;
@@ -63,12 +63,40 @@ concept Usable = requires(T x) {
 
 void use_usable(tfg_virtual_Usable *x) {
   x->tfg_virtual_use();
+  delete x;
 }
+
+struct usable_char: tfg_virtual_Usable {
+  char x;
+  usable_char() : x{'a'} {}
+  usable_char(char x) : x{x} {}
+  int tfg_virtual_use() override {
+    puts("usable_char::use()");
+    return use(x);
+  }
+  ~usable_char() override { puts("~usable_char()"); }
+};
+
+struct asd {
+  virtual int Do() = 0;
+  virtual ~asd() = default;
+};
+
+struct asdasd : public asd {
+  virtual int Do() override {
+    return 0;
+  }
+  ~asdasd() override { puts("\n~asdasd()\n"); }
+};
+
 
 static_assert(Usable<char>, "LA PUTA MADRE");
 
 int main() {
-  // tfg_virtual_UsableDouble* x;
-  // use_usable(x);
+  asd* x  = new asdasd;
+  delete x;
+
+  auto* c = new usable_char('a');
+  use_usable(c);
   return use('a');
 }

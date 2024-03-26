@@ -369,14 +369,15 @@ public:
     //===--------------------------------------------------------------------===//
     // C++ Virtual Concepts (TFG Gonzalo Juarez)
     //===--------------------------------------------------------------------===//
-    const TypeSourceInfo* getReturnTypeSourceInfo() const
-    {
-      assert(ReturnTypeInfo != nullptr);
-      return ReturnTypeInfo;
-    }
-    //===--------------------------------------------------------------------===//
-    // C++ Virtual Concepts (TFG Gonzalo Juarez)
-    //===--------------------------------------------------------------------===//
+      const TypeSourceInfo *getReturnTypeSourceInfo() const {
+        assert(ReturnTypeInfo != nullptr);
+        return ReturnTypeInfo;
+      }
+
+      bool hasReturnTypeSourceInfo() const { return ReturnTypeInfo != nullptr; }
+      //===--------------------------------------------------------------------===//
+      // C++ Virtual Concepts (TFG Gonzalo Juarez)
+      //===--------------------------------------------------------------------===//
   };
 
 private:

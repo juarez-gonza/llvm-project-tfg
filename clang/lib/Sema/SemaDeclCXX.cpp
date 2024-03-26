@@ -14348,6 +14348,71 @@ void Sema::DefineImplicitDestructor(SourceLocation CurrentLocation,
   }
 }
 
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
+
+CXXDestructorDecl *
+Sema::DefineVirtualConceptDestructor(CXXRecordDecl *ClassDecl) {
+  // NOTE: Probably should assert that this is a valid virtual concept class representation here.
+
+  // Careful copy and pasting + minor edits from Sema::DeclareImplicitDestructor
+  // and Sema::DefineImplicitDestructor
+  DeclaringSpecialMember DSM(*this, ClassDecl, CXXDestructor);
+  if (DSM.isAlreadyBeingDeclared())
+    return nullptr;
+  bool Constexpr =
+    defaultedSpecialMemberIsConstexpr(*this, ClassDecl, CXXDestructor, false);
+  // Create the actual destructor declaration.
+  CanQualType ClassType
+    = Context.getCanonicalType(Context.getTypeDeclType(ClassDecl));
+  SourceLocation ClassLoc = ClassDecl->getLocation();
+  DeclarationName Name
+    = Context.DeclarationNames.getCXXDestructorName(ClassType);
+
+  DeclarationNameInfo NameInfo(Name, ClassLoc);
+  CXXDestructorDecl *Destructor = CXXDestructorDecl::Create(
+      Context, ClassDecl, ClassLoc, NameInfo, QualType(), nullptr,
+      getCurFPFeatures().isFPConstrained(),
+      /*isInline=*/true,
+      /*isImplicitlyDeclared=*/true,
+      Constexpr ? ConstexprSpecKind::Constexpr
+                : ConstexprSpecKind::Unspecified);
+  Destructor->setAccess(AS_public);
+  Destructor->getAsFunction()->setIsPureVirtual(); // this is the important part for this function
+  setupImplicitSpecialMemberType(Destructor, Context.VoidTy, std::nullopt);
+
+  // Note that we have declared this destructor.
+  ++getASTContext().NumImplicitDestructorsDeclared;
+
+  // Introduce this destructor into its scope.
+  Scope *S = getScopeForContext(ClassDecl);
+  if (S)
+    PushOnScopeChains(Destructor, S, false);
+  ClassDecl->addDecl(Destructor);
+
+  SynthesizedFunctionScope Scope(*this, Destructor);
+
+  MarkVTableUsed(ClassDecl->getBeginLoc(), ClassDecl);
+  MarkBaseAndMemberDestructorsReferenced(Destructor->getLocation(),
+                                         Destructor->getParent());
+
+  if (CheckDestructor(Destructor)) {
+    Destructor->setInvalidDecl();
+    return nullptr;
+  }
+
+  // default body `{}`
+  Destructor->setBody(new (Context) CompoundStmt(Destructor->getLocation()));
+  Destructor->markUsed(Context);
+
+  return Destructor;
+}
+
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
+
 void Sema::CheckCompleteDestructorVariant(SourceLocation CurrentLocation,
                                           CXXDestructorDecl *Destructor) {
   if (Destructor->isInvalidDecl())

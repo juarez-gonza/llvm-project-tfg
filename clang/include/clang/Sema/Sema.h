@@ -6557,6 +6557,17 @@ public:
   void DefineImplicitDestructor(SourceLocation CurrentLocation,
                                 CXXDestructorDecl *Destructor);
 
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
+
+  CXXDestructorDecl *
+  DefineVirtualConceptDestructor(CXXRecordDecl *ClassDecl);
+
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
+
   /// Build an exception spec for destructors that don't have one.
   ///
   /// C++11 says that user-defined destructors with no exception spec get one
