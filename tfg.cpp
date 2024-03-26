@@ -1,5 +1,5 @@
-#include <iostream>
-#include <string>
+// #include <iostream>
+// #include <string>
 
 /*
 // Non-virtualizable concept
@@ -24,11 +24,6 @@ concept Zetable = requires(T x) {
   { zeta(x, x) } noexcept;
 };
 
-// Non-virtualizable
-template<typename T>
-concept Unusable = requires(T x, int y) {
-  { unuse(x, y) } noexcept; // Missing return type constraint
-};
 
 // Virtualizable
 //template<typename T>
@@ -37,18 +32,43 @@ concept Unusable = requires(T x, int y) {
 //};
 */
 
-std::string use(char x) {
-  return {x};
+// Non-virtualizable
+/*
+template<typename T>
+concept Unusable = requires(T x, int y) {
+  { unuse(x, y) } noexcept; // Missing return type constraint
+};
+*/
+
+int use(char x) {
+  return x;
+}
+
+/*
+double use_double(char x) {
+  return (int)x;
 }
 
 template<typename T>
-concept Usable = requires(T x) {
-  { use(x) } -> std::string;
+concept UsableDouble = requires(T x) {
+  { use_double(x) } -> double;
 };
+*/
+
+
+template<typename T>
+concept Usable = requires(T x) {
+  { use(x) } -> int;
+};
+
+void use_usable(tfg_virtual_Usable *x) {
+  x->tfg_virtual_use();
+}
 
 static_assert(Usable<char>, "LA PUTA MADRE");
 
 int main() {
-  std::cout << use('c') << "\n";
-  return 0;
+  // tfg_virtual_UsableDouble* x;
+  // use_usable(x);
+  return use('a');
 }

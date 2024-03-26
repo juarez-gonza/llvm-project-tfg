@@ -11910,25 +11910,17 @@ namespace impl {
 class PopulateVirtualConcept
     : public RecursiveASTVisitor<PopulateVirtualConcept> {
   Sema &SemaRef;
-  ASTContext &Context;
   ConceptDecl *Concept;
-  Scope *S;
   CXXRecordDecl *Base;
 
 public:
-  PopulateVirtualConcept(Sema &SemaRef, ASTContext &Context,
-                         ConceptDecl *Concept, Scope *S, CXXRecordDecl *Base)
-      : SemaRef(SemaRef), Context(Context), Concept{Concept}, S{S}, Base{Base} {
-  }
+  PopulateVirtualConcept(Sema &SemaRef, ConceptDecl *Concept,
+                         CXXRecordDecl *Base)
+      : SemaRef(SemaRef), Concept{Concept}, Base{Base} {}
 
-  void operator()() {
-    SemaRef.PushDeclContext(S, Base);
-    TraverseDecl(Concept);
-    SemaRef.PopDeclContext();
-  }
+  void operator()() { TraverseDecl(Concept); }
 
   bool VisitRequiresExpr(const RequiresExpr *E) {
-    fprintf(stderr, "\n### VisitRequiresExpr ###\n");
     ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
     for (auto *Req : Reqs)
       AddVirtualMethodFromReq(Base, Req);
@@ -11961,13 +11953,14 @@ private:
 
     // Get the compound requirement callee name, this will be used to create the
     // virtual method
-    std::string CalleeName;
+    std::string MethodName;
     {
+      std::string CalleeName;
       llvm::raw_string_ostream ss{CalleeName};
       Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
+      MethodName = llvm::formatv("tfg_virtual_{0}", CalleeName);
     }
-    std::string MethodName = llvm::formatv("tfg_virtual_{0}", CalleeName);
-    auto &MethodII = Context.Idents.get(MethodName);
+    auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
     CXXMethodDecl *Method = CXXMethodDecl::Create(
         SemaRef.Context, Class, Callee->getExprLoc(),
@@ -11981,77 +11974,90 @@ private:
     // Attach params
     SmallVector<ParmVarDecl *> Params;
     for (auto *Arg : Args)
-      if (!isInstantiationDependent(Arg))
-        Params.push_back(
+      if (!isInstantiationDependent(Arg)) {
+        auto *P =
             ParmVarDecl::Create(SemaRef.Context, Method, Arg->getBeginLoc(),
                                 Arg->getExprLoc(), nullptr, Arg->getType(),
-                                Context.getTrivialTypeSourceInfo(
+                                SemaRef.Context.getTrivialTypeSourceInfo(
                                     Arg->getType(), Arg->getBeginLoc()),
-                                SC_None, nullptr));
-
-    for (auto *P : Params)
-      P->setOwningFunction(Method);
-
-    // Method->setLexicalDeclContext(Class);
-    // Method->setLocation(LambdaLoc);
-    // Method->setInnerLocStart(CallOperatorLoc);
-    // Method->setTypeSourceInfo(MethodTyInfo);
-    // Method->setType(buildTypeForLambdaCallOperator(*this, LSI->Lambda,
-    //                                                TemplateParams,
-    //                                                MethodTyInfo));
-    // Method->setConstexprKind(ConstexprKind);
+                                SC_None, nullptr);
+        Params.push_back(P);
+        P->setOwningFunction(Method);
+      }
     Method->setParams(Params);
+
+    // Set public, virtual and check that I haven't screwed up while doing so
     Method->setAccess(AS_public);
     Method->setIsPureVirtual();
-    fprintf(stderr, "\n##### Parent: %s, Method: %s #####\n",
-            Method->getParent()->getIdentifier()->getName().str().c_str(),
-            MethodName.c_str());
     SemaRef.CheckPureMethod(Method, SourceRange());
 
-    SemaRef.PushOnScopeChains(Method, S);
+    // Add this declaration to the Class, otherwise it does not show up in the
+    // AST (lookup doesn't show it)
+    Class->addDecl(Method);
+
     return Method;
   }
 }; // PopulateVirtualConcept
 } // namespace impl
 
 static constexpr inline auto populateVirtualConcept =
-    [](Sema &SemaRef, ASTContext &Context, ConceptDecl *Concept, Scope *S,
-       CXXRecordDecl *Base) {
+    [](Sema &SemaRef, ConceptDecl *Concept, CXXRecordDecl *Base) {
       assert(isConceptVirtualizable(SemaRef, Concept) &&
              "Cannot populate a non-virtualizable concept");
-      tfg::impl::PopulateVirtualConcept{SemaRef, Context, Concept, S, Base}();
+      tfg::impl::PopulateVirtualConcept{SemaRef, Concept, Base}();
     };
 } // namespace tfg
 
-void Sema::TryInstantiateVirtualConcept(ConceptDecl *D, Scope* S, bool AddToScope) {
+void Sema::TryInstantiateVirtualConcept(ConceptDecl *D, Scope *S,
+                                        bool AddToScope) {
   assert(D != nullptr && "Concept Declaration cannot be nullptr");
+  assert(S->isTemplateParamScope() &&
+         "Concept scope should be a TemplateParamScope");
   fprintf(stderr, "\n\n\n### TryInstantiateVirtualConcept ###\n");
-
   if (!AddToScope)
     return;
+  // The generated class "leaks" to the outer scope of the concept context
+  // sort of like enum members do
+  // Get the parent scope of the concept definition
 
   if (!tfg::isConceptVirtualizable(*this, D)) {
-    fprintf(stderr, "### Cannot turn this concept into a virtual concept ###\n\n\n");
+    fprintf(stderr,
+            "### Cannot turn this concept into a virtual concept ###\n\n\n");
     return;
   }
   fprintf(stderr, "### Concept is virtualizable ###\n\n\n");
 
+  Scope *ClassParentScope = S->getParent();
   std::string BaseName = llvm::formatv("tfg_virtual_{0}", D->getName());
 
-  // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that creats a record
-  // at the TU DeclContext, and this feature needs the record declaration at the same context level
-  // as the c++20 concept. However, do read that method and CXXRecordDecl::CreateLambda() because
-  // the following code stems from thoughtful copy and pasting
+  // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that
+  // creats a record at the TU DeclContext, and this feature needs the record
+  // declaration at the same context level as the c++20 concept. However, do
+  // read that method and CXXRecordDecl::CreateLambda() because the following
+  // code stems from thoughtful copy and pasting
   auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
-						       Context, CurContext, D->getBeginLoc(), &Context.Idents.get(BaseName));
-  tfg::populateVirtualConcept(*this, Context, D, S, Base);
-  Base->markAbstract();
-  Base->completeDefinition();
+      Context, ClassParentScope->getEntity(), D->getBeginLoc(),
+      &Context.Idents.get(BaseName));
 
-  PushOnScopeChains(Base, S);
-  for (auto *decl : Base->methods())
-    fprintf(stderr, "##### %s #####",
-            decl->getDeclName().getAsString().c_str());
+  // Create the necessary methods
+  tfg::populateVirtualConcept(*this, D, Base);
+
+  // Mark the class as purely virtual
+  Base->markAbstract();
+
+  // Mark the class as implicit - not written in code - (see
+  // ASTContext::buildImplicitRecord)
+  Base->setImplicit();
+  Base->addAttr(TypeVisibilityAttr::CreateImplicit(
+      const_cast<ASTContext &>(Context), TypeVisibilityAttr::Default));
+
+  // End class definition
+
+  Base->completeDefinition();
 
   fprintf(stderr, "\n### Fin TryInstantiateVirtualConcept ###\n");
 }
+
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
