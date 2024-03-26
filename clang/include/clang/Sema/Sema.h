@@ -8845,7 +8845,7 @@ public:
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
 
-  void TryInstantiateVirtualConcept(ConceptDecl *D, Scope *S, bool AddToScope);
+  void TryInstantiateVirtualConcept(ConceptDecl *D);
 
   //===--------------------------------------------------------------------===//
   // C++ Variadic Templates (C++0x [temp.variadic])

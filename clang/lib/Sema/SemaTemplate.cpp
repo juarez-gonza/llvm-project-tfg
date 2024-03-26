@@ -23,6 +23,7 @@
 #include "clang/AST/TypeVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/ExceptionSpecificationType.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceLocation.h"
@@ -9242,7 +9243,7 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
   if (AddToScope)
     PushOnScopeChains(NewDecl, S);
 
-  TryInstantiateVirtualConcept(NewDecl, S, AddToScope);
+  TryInstantiateVirtualConcept(NewDecl);
 
   return NewDecl;
 }
@@ -11806,20 +11807,24 @@ SourceLocation Sema::getTopMostPointOfInstantiation(const NamedDecl *N) const {
 //===--------------------------------------------------------------------===//
 
 namespace tfg {
+
+static constexpr inline auto isInstantiationDependent = [](QualType Ty) {
+  return Ty->isTemplateTypeParmType() || Ty->isInstantiationDependentType();
+};
+
 namespace impl {
-struct IsInstantiationDependent {
+struct HasInstantiationDependentType {
   template <typename T,
             typename = std::enable_if_t<
                 std::is_member_function_pointer_v<decltype(&T::getType)>>>
   bool operator()(T *X) const {
-    QualType Ty = X->getType();
-    return Ty->isTemplateTypeParmType() || Ty->isInstantiationDependentType();
+    return isInstantiationDependent(X->getType());
   }
 }; // isInstantiationDependent
 } // namespace impl
 
-static constexpr inline auto isInstantiationDependent =
-    tfg::impl::IsInstantiationDependent{};
+static constexpr inline auto hasInstantiationDependentType =
+    tfg::impl::HasInstantiationDependentType{};
 
 namespace impl {
 struct CountInstantiationDependent {
@@ -11828,7 +11833,7 @@ struct CountInstantiationDependent {
                 std::is_member_function_pointer_v<decltype(&T::getType)>>>
   /* difference_type*/
   auto operator()(ArrayRef<T *> Xs) const {
-    return std::count_if(Xs.begin(), Xs.end(), IsInstantiationDependent{});
+    return std::count_if(Xs.begin(), Xs.end(), HasInstantiationDependentType{});
   }
 }; // countInstantiationDependent
 } // namespace impl
@@ -11923,20 +11928,28 @@ public:
   bool VisitRequiresExpr(const RequiresExpr *E) {
     ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
     for (auto *Req : Reqs)
-      AddVirtualMethodFromReq(Base, Req);
+      AddVirtualMethodFromReq(Req);
     return true;
   }
 
 private:
-  CXXMethodDecl *AddVirtualMethodFromReq(CXXRecordDecl *Class,
-                                         concepts::Requirement *Req) {
+  CXXMethodDecl *AddVirtualMethodFromReq(concepts::Requirement *Req) {
     auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
+    auto MethodType = ReqToMethodType(CompoundReq);
+    auto *Method = CreateMethod(CompoundReq, MethodType);
+
+    // Add this declaration to the Class, otherwise it does not show up in the
+    // AST (lookup doesn't show it)
+    Base->addDecl(Method);
+    return Method;
+  }
+
+  QualType ReqToMethodType(concepts::ExprRequirement *CompoundReq) {
     auto *Call = cast<CallExpr>(CompoundReq->getExpr());
-    auto *Callee = Call->getCallee();
 
     auto Args = SmallVector<Expr *>{Call->getNumArgs() - 1};
     for (auto *A : ArrayRef{Call->getArgs(), Call->getNumArgs()})
-      if (!isInstantiationDependent(
+      if (!hasInstantiationDependentType(
               A)) // the instantiation dependent arg is `this` pointer
         Args.push_back(A);
 
@@ -11948,11 +11961,18 @@ private:
     const auto *ReturnTypeInfo =
         CompoundReq->getReturnTypeRequirement().getReturnTypeSourceInfo();
 
-    auto FunctionProtoType = SemaRef.Context.getFunctionType(
-        ReturnTypeInfo->getType(), ArgTypes, {});
+    // Use noexcept if specified and create method prototype
+    auto EPI = FunctionProtoType::ExtProtoInfo{}.withExceptionSpec(
+        {CompoundReq->hasNoexceptRequirement() ? EST_BasicNoexcept : EST_None});
+    return SemaRef.Context.getFunctionType(ReturnTypeInfo->getType(), ArgTypes,
+                                           EPI);
+  }
 
+  CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
+                              QualType MethodType) {
     // Get the compound requirement callee name, this will be used to create the
     // virtual method
+    auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
     std::string MethodName;
     {
       std::string CalleeName;
@@ -11962,10 +11982,11 @@ private:
     }
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
+    // Create the method
     CXXMethodDecl *Method = CXXMethodDecl::Create(
-        SemaRef.Context, Class, Callee->getExprLoc(),
+        SemaRef.Context, Base, Callee->getExprLoc(),
         DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
-        FunctionProtoType,
+        MethodType,
         /*Tinfo=*/nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(),
         /*isInline=*/true, ConstexprSpecKind::Unspecified, SourceLocation(),
@@ -11973,13 +11994,14 @@ private:
 
     // Attach params
     SmallVector<ParmVarDecl *> Params;
-    for (auto *Arg : Args)
+    for (auto Arg :
+         MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
       if (!isInstantiationDependent(Arg)) {
         auto *P =
-            ParmVarDecl::Create(SemaRef.Context, Method, Arg->getBeginLoc(),
-                                Arg->getExprLoc(), nullptr, Arg->getType(),
+            ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
+                                Method->getBeginLoc(), nullptr, Arg,
                                 SemaRef.Context.getTrivialTypeSourceInfo(
-                                    Arg->getType(), Arg->getBeginLoc()),
+                                    Arg, Method->getBeginLoc()),
                                 SC_None, nullptr);
         Params.push_back(P);
         P->setOwningFunction(Method);
@@ -11990,11 +12012,6 @@ private:
     Method->setAccess(AS_public);
     Method->setIsPureVirtual();
     SemaRef.CheckPureMethod(Method, SourceRange());
-
-    // Add this declaration to the Class, otherwise it does not show up in the
-    // AST (lookup doesn't show it)
-    Class->addDecl(Method);
-
     return Method;
   }
 }; // PopulateVirtualConcept
@@ -12008,17 +12025,9 @@ static constexpr inline auto populateVirtualConcept =
     };
 } // namespace tfg
 
-void Sema::TryInstantiateVirtualConcept(ConceptDecl *D, Scope *S,
-                                        bool AddToScope) {
+void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   assert(D != nullptr && "Concept Declaration cannot be nullptr");
-  assert(S->isTemplateParamScope() &&
-         "Concept scope should be a TemplateParamScope");
   fprintf(stderr, "\n\n\n### TryInstantiateVirtualConcept ###\n");
-  if (!AddToScope)
-    return;
-  // The generated class "leaks" to the outer scope of the concept context
-  // sort of like enum members do
-  // Get the parent scope of the concept definition
 
   if (!tfg::isConceptVirtualizable(*this, D)) {
     fprintf(stderr,
@@ -12027,7 +12036,9 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D, Scope *S,
   }
   fprintf(stderr, "### Concept is virtualizable ###\n\n\n");
 
-  Scope *ClassParentScope = S->getParent();
+  // The generated class "leaks" to the outer scope of the concept context
+  // sort of like enum members do. Get the parent scope of the concept definition
+  Scope *ClassParentScope = getScopeForContext(D->getDeclContext());
   std::string BaseName = llvm::formatv("tfg_virtual_{0}", D->getName());
 
   // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that
@@ -12052,7 +12063,6 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D, Scope *S,
       const_cast<ASTContext &>(Context), TypeVisibilityAttr::Default));
 
   // End class definition
-
   Base->completeDefinition();
 
   fprintf(stderr, "\n### Fin TryInstantiateVirtualConcept ###\n");
