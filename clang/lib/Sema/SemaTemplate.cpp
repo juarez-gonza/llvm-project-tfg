@@ -12012,6 +12012,9 @@ private:
     Method->setIsPureVirtual();
     Method->setVirtualAsWritten(true);
     SemaRef.CheckPureMethod(Method, SourceRange());
+
+    // TODO: Call PushOnScopeChains?
+
     return Method;
   }
 }; // PopulateVirtualConcept
@@ -12068,6 +12071,8 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   // End class definition
   Base->completeDefinition();
   CheckCompletedCXXClass(BaseParentScope, Base);
+
+  // TODO: Call PushOnScopeChains?
 
   fprintf(stderr, "\n### Fin TryInstantiateVirtualConcept ###\n");
 }
