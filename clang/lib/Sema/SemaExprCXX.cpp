@@ -9025,6 +9025,10 @@ Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc) {
                               /*ReturnTypeRequirement=*/{});
 }
 
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
+
 concepts::Requirement *
 Sema::ActOnCompoundRequirement(Expr *E, TypeResult ReturnTypeResult,
                                SourceLocation NoexceptLoc,
@@ -9111,7 +9115,9 @@ Sema::ActOnCompoundRequirement(Expr *E, TypeResult ReturnTypeResult,
 			      concepts::ExprRequirement::ReturnTypeRequirement(TPL, ReturnTypeInfo));
 }
 
-// fprintf TFG Juarez: Add new ActOnCompoundRequirement for simple-type-specifiers
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
 
 concepts::Requirement *
 Sema::ActOnCompoundRequirement(
