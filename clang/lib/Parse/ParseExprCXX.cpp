@@ -2298,6 +2298,9 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
   case tok::kw_auto:
     DS.SetTypeSpecType(DeclSpec::TST_auto, Loc, PrevSpec, DiagID, Policy);
     break;
+  case tok::kw_virtual:
+    DS.SetTypeSpecType(DeclSpec::TST_virtual, Loc, PrevSpec, DiagID, Policy);
+    break;
   case tok::kw_char:
     DS.SetTypeSpecType(DeclSpec::TST_char, Loc, PrevSpec, DiagID, Policy);
     break;

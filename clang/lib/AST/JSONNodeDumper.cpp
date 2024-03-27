@@ -756,6 +756,8 @@ void JSONNodeDumper::VisitAutoType(const AutoType *AT) {
   case AutoTypeKeyword::GNUAutoType:
     JOS.attribute("typeKeyword", "__auto_type");
     break;
+  case AutoTypeKeyword::Virtual: // TFG Gonzalo Juarez
+    JOS.attribute("typeKeyword", "virtual");
   }
 }
 

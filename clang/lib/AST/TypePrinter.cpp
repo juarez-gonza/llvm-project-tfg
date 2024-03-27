@@ -1226,6 +1226,7 @@ void TypePrinter::printAutoBefore(const AutoType *T, raw_ostream &OS) {
     case AutoTypeKeyword::Auto: OS << "auto"; break;
     case AutoTypeKeyword::DecltypeAuto: OS << "decltype(auto)"; break;
     case AutoTypeKeyword::GNUAutoType: OS << "__auto_type"; break;
+    case AutoTypeKeyword::Virtual: OS << "virtual"; break;
     }
     spaceBeforePlaceHolder(OS);
   }

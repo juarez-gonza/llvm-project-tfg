@@ -3875,8 +3875,8 @@ void Parser::ParseDeclarationSpecifiers(
                                          TemplateId, Policy);
           break;
         }
-        if (!NextToken().isOneOf(tok::kw_auto, tok::kw_decltype))
-            goto DoneWithDeclSpec;
+        if (!NextToken().isOneOf(tok::kw_auto, tok::kw_decltype, tok::kw_virtual))
+          goto DoneWithDeclSpec;
 
         if (TemplateId && !isInvalid && Actions.CheckTypeConstraint(TemplateId))
             TemplateId = nullptr;
@@ -3906,6 +3906,9 @@ void Parser::ParseDeclarationSpecifiers(
           // `decltype(auto)`.
           isInvalid = DS.SetTypeSpecType(TST_decltype_auto, Loc, PrevSpec,
                                          DiagID, TemplateId, Policy);
+        } else if (Tok.is(tok::kw_virtual)) {
+          isInvalid = DS.SetTypeSpecType(TST_virtual, AutoLoc, PrevSpec, DiagID,
+                                         TemplateId, Policy);
         } else {
           isInvalid = DS.SetTypeSpecType(TST_auto, AutoLoc, PrevSpec, DiagID,
                                          TemplateId, Policy);

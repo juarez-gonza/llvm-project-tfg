@@ -1680,11 +1680,14 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     }
     break;
 
+  case DeclSpec::TST_virtual: // TFG Gonzalo Juarez
   case DeclSpec::TST_auto:
   case DeclSpec::TST_decltype_auto: {
     auto AutoKW = DS.getTypeSpecType() == DeclSpec::TST_decltype_auto
                       ? AutoTypeKeyword::DecltypeAuto
-                      : AutoTypeKeyword::Auto;
+                  : DS.getTypeSpecType() == DeclSpec::TST_virtual
+                      ? AutoTypeKeyword::Virtual
+                    : AutoTypeKeyword::Auto;
 
     ConceptDecl *TypeConstraintConcept = nullptr;
     llvm::SmallVector<TemplateArgument, 8> TemplateArgs;
@@ -3780,11 +3783,12 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
         case AutoTypeKeyword::Auto: Kind = 0; break;
         case AutoTypeKeyword::DecltypeAuto: Kind = 1; break;
         case AutoTypeKeyword::GNUAutoType: Kind = 2; break;
+	case AutoTypeKeyword::Virtual: Kind = 3; break; // TFG Gonzalo Juarez
         }
       } else {
         assert(isa<DeducedTemplateSpecializationType>(Deduced) &&
                "unknown auto type");
-        Kind = 3;
+        Kind = 4;
       }
 
       auto *DTST = dyn_cast<DeducedTemplateSpecializationType>(Deduced);
@@ -6371,6 +6375,7 @@ namespace {
     void VisitAutoTypeLoc(AutoTypeLoc TL) {
       assert(DS.getTypeSpecType() == TST_auto ||
              DS.getTypeSpecType() == TST_decltype_auto ||
+             DS.getTypeSpecType() == TST_virtual ||
              DS.getTypeSpecType() == TST_auto_type ||
              DS.getTypeSpecType() == TST_unspecified);
       TL.setNameLoc(DS.getTypeSpecTypeLoc());

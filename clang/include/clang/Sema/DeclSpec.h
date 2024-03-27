@@ -313,6 +313,7 @@ public:
   static const TST TST_##Trait = clang::TST_##Trait;
 #include "clang/Basic/TransformTypeTraits.def"
   static const TST TST_auto = clang::TST_auto;
+  static const TST TST_virtual = clang::TST_virtual; // TFG Gonzalo Juarez
   static const TST TST_auto_type = clang::TST_auto_type;
   static const TST TST_unknown_anytype = clang::TST_unknown_anytype;
   static const TST TST_atomic = clang::TST_atomic;
@@ -434,7 +435,7 @@ private:
            T == TST_decltype || T == TST_bitint;
   }
   static bool isTemplateIdRep(TST T) {
-    return (T == TST_auto || T == TST_decltype_auto);
+    return (T == TST_auto || T == TST_decltype_auto || T == TST_virtual);
   }
 
   DeclSpec(const DeclSpec &) = delete;
@@ -560,8 +561,8 @@ public:
   void setTypeArgumentRange(SourceRange range) { TypeofParensRange = range; }
 
   bool hasAutoTypeSpec() const {
-    return (TypeSpecType == TST_auto || TypeSpecType == TST_auto_type ||
-            TypeSpecType == TST_decltype_auto);
+    return (TypeSpecType == TST_virtual || TypeSpecType == TST_auto ||
+            TypeSpecType == TST_auto_type || TypeSpecType == TST_decltype_auto);
   }
 
   bool hasTagDefinition() const;

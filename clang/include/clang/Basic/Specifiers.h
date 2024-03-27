@@ -90,6 +90,7 @@ namespace clang {
 #define TRANSFORM_TYPE_TRAIT_DEF(_, Trait) TST_##Trait,
 #include "clang/Basic/TransformTypeTraits.def"
     TST_auto,            // C++11 auto
+    TST_virtual,            // TFG Gonzalo Juarez
     TST_decltype_auto,   // C++1y decltype(auto)
     TST_auto_type,       // __auto_type extension
     TST_unknown_anytype, // __unknown_anytype extension

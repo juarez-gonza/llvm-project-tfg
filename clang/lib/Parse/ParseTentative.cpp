@@ -1332,13 +1332,14 @@ Parser::TPResult
 Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
                                   Parser::TPResult BracedCastResult,
                                   bool *InvalidAsDeclSpec) {
+  fprintf(stderr, "\n########## %s #############\n", __func__);
   auto IsPlaceholderSpecifier = [&](TemplateIdAnnotation *TemplateId,
                                     int Lookahead) {
     // We have a placeholder-constraint (we check for 'auto' or 'decltype' to
     // distinguish 'C<int>;' from 'C<int> auto c = 1;')
     return TemplateId->Kind == TNK_Concept_template &&
            (GetLookAheadToken(Lookahead + 1)
-                .isOneOf(tok::kw_auto, tok::kw_decltype,
+                .isOneOf(tok::kw_auto, tok::kw_decltype, tok::kw_virtual,
                          // If we have an identifier here, the user probably
                          // forgot the 'auto' in the placeholder constraint,
                          // e.g. 'C<int> x = 2;' This will be diagnosed nicely

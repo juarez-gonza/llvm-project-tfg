@@ -344,6 +344,7 @@ bool Declarator::isDeclarationOfFunction() const {
     case TST_atomic:
     case TST_auto:
     case TST_auto_type:
+    case TST_virtual: // TFG Gonzalo Juarez
     case TST_bool:
     case TST_char:
     case TST_char8:
@@ -590,6 +591,7 @@ const char *DeclSpec::getSpecifierName(DeclSpec::TST T,
   case DeclSpec::TST_typeof_unqualType:
   case DeclSpec::TST_typeof_unqualExpr: return "typeof_unqual";
   case DeclSpec::TST_auto:        return "auto";
+  case DeclSpec::TST_virtual:     return "virtual"; // TFG Gonzalo Juarez
   case DeclSpec::TST_auto_type:   return "__auto_type";
   case DeclSpec::TST_decltype:    return "(decltype)";
   case DeclSpec::TST_decltype_auto: return "decltype(auto)";
@@ -835,7 +837,7 @@ bool DeclSpec::SetTypeSpecType(TST T, SourceLocation TagKwLoc,
 bool DeclSpec::SetTypeSpecType(TST T, SourceLocation Loc, const char *&PrevSpec,
                                unsigned &DiagID, TemplateIdAnnotation *Rep,
                                const PrintingPolicy &Policy) {
-  assert(T == TST_auto || T == TST_decltype_auto);
+  assert(T == TST_auto || T == TST_decltype_auto || T == TST_virtual);
   ConstrainedAuto = true;
   TemplateIdRep = Rep;
   return SetTypeSpecType(T, Loc, PrevSpec, DiagID, Policy);

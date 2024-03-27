@@ -590,7 +590,7 @@ Parser::TPResult Parser::isStartOfTemplateTypeParameter() {
       // type-constraint is in fact part of a placeholder-type-specifier of a
       // non-type template parameter.
       !GetLookAheadToken(Tok.is(tok::annot_cxxscope) ? 2 : 1)
-           .isOneOf(tok::kw_auto, tok::kw_decltype))
+           .isOneOf(tok::kw_auto, tok::kw_decltype, tok::kw_virtual))
     return TPResult::True;
 
   // 'typedef' is a reasonably-common typo/thinko for 'typename', and is

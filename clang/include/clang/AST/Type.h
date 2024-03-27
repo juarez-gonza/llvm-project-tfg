@@ -1566,6 +1566,9 @@ enum class AutoTypeKeyword {
   /// auto
   Auto,
 
+  /// virtual
+  Virtual,
+
   /// decltype(auto)
   DecltypeAuto,
 
@@ -5478,6 +5481,14 @@ public:
   bool isGNUAutoType() const {
     return getKeyword() == AutoTypeKeyword::GNUAutoType;
   }
+
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
+  bool isVirtual() const { return getKeyword() == AutoTypeKeyword::Virtual; }
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
 
   AutoTypeKeyword getKeyword() const {
     return (AutoTypeKeyword)AutoTypeBits.Keyword;
