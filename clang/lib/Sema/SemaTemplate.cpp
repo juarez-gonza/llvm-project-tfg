@@ -12042,7 +12042,7 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   // The generated class "leaks" to the outer scope of the concept context
   // sort of like enum members do. Get the parent scope of the concept definition
   Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
-  std::string BaseName = llvm::formatv("tfg_virtual_{0}", D->getName());
+  auto BaseName = "_tfg_virtual_" + D->getDeclName().getAsString(); // llvm::formatv("tfg_virtual_{0}", D->getName());
 
   // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that
   // creats a record at the TU DeclContext, and this feature needs the record
