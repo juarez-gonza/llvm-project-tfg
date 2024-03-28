@@ -61,22 +61,22 @@ concept Usable = requires(T x) {
   { use(x) } -> int;
 };
 
-void use_usable(tfg_virtual_Usable *x) {
-  x->tfg_virtual_use();
-  delete x;
+void use_usable(_tfg_virtual_Usable *x) {
+  x->_tfg_virtual_use();
 }
 
-struct usable_char: tfg_virtual_Usable {
+struct _tfg_virtual_Usable_char : _tfg_virtual_Usable {
   char x;
-  usable_char() : x{'a'} {}
-  usable_char(char x) : x{x} {}
-  int tfg_virtual_use() override {
+  _tfg_virtual_Usable_char() : x{'a'} {}
+  _tfg_virtual_Usable_char(char x) : x{x} {}
+  int _tfg_virtual_use() override {
     puts("usable_char::use()");
     return use(x);
   }
-  ~usable_char() override { puts("~usable_char()"); }
+  ~_tfg_virtual_Usable_char() override { puts("~usable_char()"); }
 };
 
+/*
 struct asd {
   virtual int Do() = 0;
   virtual ~asd() = default;
@@ -88,15 +88,18 @@ struct asdasd : public asd {
   }
   ~asdasd() override { puts("\n~asdasd()\n"); }
 };
+*/
 
 
 static_assert(Usable<char>, "LA PUTA MADRE");
 
 int main() {
+  /*
   asd* x  = new asdasd;
   delete x;
+  */
 
-  auto* c = new usable_char('a');
-  use_usable(c);
-  return use('a');
+  Usable virtual c = 'a';
+  use_usable(&c);
+  return 0;
 }

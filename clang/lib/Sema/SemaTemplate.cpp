@@ -11977,7 +11977,7 @@ private:
       std::string CalleeName;
       llvm::raw_string_ostream ss{CalleeName};
       Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
-      MethodName = llvm::formatv("tfg_virtual_{0}", CalleeName);
+      MethodName = llvm::formatv("_tfg_virtual_{0}", CalleeName);
     }
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 

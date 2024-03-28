@@ -13125,6 +13125,90 @@ bool Sema::DeduceVariableDeclarationType(VarDecl *VDecl, bool DirectInit,
     return true;
   }
 
+  // tfg juarez init
+  // note: adding deduction for virtual concept here since deduceVarTypeFromInitializer
+  // gets also called from Sema::buildLambdaInitCaptureInitialization in SemaLambda.cpp
+  // at the moment we are not supporting virtual concepts on lambda init capture
+
+  // this should probably be handled in SemaTemplateDeduction using the
+  // SubstituteDeducedTypeTransform
+
+  /*
+  if (VDecl->getType()->getContainedAutoType()->isVirtual()) {
+    auto *Auto = VDecl->getType()->getContainedAutoType();
+    if (!Auto->isConstrained()) {
+      // virtual concept must have an associated concept... duh
+      fprintf(stderr, "\n########## NO ASSOCIATED CONCEPT ##########\n");
+      VDecl->setInvalidDecl();
+      return true;
+    }
+    fprintf(
+        stderr, "\n############ ASSOCIATED CONCEPT %s ################\n",
+            Auto->getTypeConstraintConcept()->getDeclName().getAsString().c_str());
+    auto *UnderlyingType =
+        DeducedType.getTypePtr()->isPointerType()
+            ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
+            : DeducedType.getTypePtr();
+    fprintf(stderr,
+            "\n\nDeducing for virtual %s %s, got from auto deduction %s\n\n",
+            Auto->isPointerType() ? "Pointer Type" : "Non-Pointer Type",
+            QualType(UnderlyingType, 0).getAsString().c_str(),
+            DeducedType.getAsString().c_str());
+    ConceptDecl *Concept = Auto->getTypeConstraintConcept();
+    DeclContext* ConceptDC = Concept->getDeclContext();
+    std::string BaseName =
+      llvm::formatv("_tfg_virtual_{0}", Concept->getDeclName().getAsString());
+
+    auto BaseIt = std::find_if(
+        ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
+          if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+            return R->getName().str() == BaseName;
+          return false;
+        });
+
+    if (BaseIt == ConceptDC->decls_end()) {
+      fprintf(stderr, "\n########## NOT A VIRTUAL CONCEPT %s ##########\n", BaseName.c_str());
+      VDecl->setInvalidDecl();
+      return true;
+    }
+
+    fprintf(stderr,
+            "\n################ VIRTUAL CONCEPT %s ##################\n",
+            cast<CXXRecordDecl>(*BaseIt)->getName().str().c_str());
+
+    std::string TypeName = llvm::formatv(
+        "{0}_{1}", BaseName, QualType(UnderlyingType, 0).getAsString());
+
+    auto VCDeducedIt = std::find_if(
+        ConceptDC->decls_begin(), ConceptDC->decls_end(), [&TypeName](Decl *D) {
+          if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+            return R->getName().str() == TypeName;
+          return false;
+        });
+
+    if (VCDeducedIt == ConceptDC->decls_end()) {
+      fprintf(stderr,
+              "\n########## VIRTUAL CONCEPT %s NOT INSTANTIATED ##########\n",
+              TypeName.c_str());
+      VDecl->setInvalidDecl();
+      return true;
+    }
+    fprintf(stderr,
+            "\n################ VIRTUAL CONCEPT INSTANCE %s ##################\n",
+            cast<CXXRecordDecl>(*VCDeducedIt)->getName().str().c_str());
+
+    CXXRecordDecl* VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
+    const Type* VCType = VCDerived->getTypeForDecl();
+    DeducedType = DeducedType.getTypePtr()->isPointerType()
+                      ? Context.getPointerType(QualType(VCType, 0))
+                  : QualType(VCType, 0);
+
+    fprintf(stderr, "\ncontained auto type is virtual %s, resolved to: %s\n",
+            DeducedType.getAsString().c_str(), TypeName.c_str());
+  }
+  */
+  // tfg juarez end
+
   VDecl->setType(DeducedType);
   assert(VDecl->isLinkageValid());
 

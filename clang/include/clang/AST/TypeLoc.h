@@ -2122,6 +2122,7 @@ public:
   }
 
   bool isDecltypeAuto() const { return getTypePtr()->isDecltypeAuto(); }
+  bool isVirtual() const { return getTypePtr()->isVirtual(); }
   SourceLocation getRParenLoc() const { return getLocalData()->RParenLoc; }
   void setRParenLoc(SourceLocation Loc) { getLocalData()->RParenLoc = Loc; }
 
