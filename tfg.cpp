@@ -99,7 +99,7 @@ int main() {
   delete x;
   */
 
-  Usable virtual c = 'a';
+  Usable virtual c{'a'};
   use_usable(&c);
   return 0;
 }

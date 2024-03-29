@@ -12,6 +12,7 @@
 
 #include "TreeTransform.h"
 #include "TypeLocBuilder.h"
+#include "clang/AST/ASTConcept.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/Decl.h"
@@ -5081,6 +5082,25 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
           *this, *AT, Type.getContainedAutoTypeLoc(), DeducedType))
     return TDK_AlreadyDiagnosed;
 
+  // tfg juarez init
+  if (AT->isVirtual()) {
+    if (!AT->isConstrained()) {
+      Result = QualType();
+      return TDK_Invalid;
+    }
+    DeducedType =
+        DeduceVirtualConceptType(DeducedType, AT->getTypeConstraintConcept());
+    if (DeducedType.isNull()) {
+      Result = QualType();
+      return TDK_Invalid;
+    }
+    if (PerformImplicitConversion(Init, DeducedType, {}).isInvalid())
+      return TDK_Invalid;
+    Result = SubstituteDeducedTypeTransform(*this, DeducedType).Apply(Type);
+    return TDK_Success;
+  }
+  // tfg juarez end
+
   Result = SubstituteDeducedTypeTransform(*this, DeducedType).Apply(Type);
   if (Result.isNull())
     return TDK_AlreadyDiagnosed;
@@ -5100,6 +5120,68 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 
   return TDK_Success;
 }
+
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
+
+QualType
+Sema::DeduceVirtualConceptType(QualType DeducedType,
+                               ConceptDecl *TypeConstraintConcept) const {
+  auto *UnderlyingType =
+      DeducedType.getTypePtr()->isPointerType()
+          ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
+          : DeducedType.getTypePtr();
+  ConceptDecl *Concept = TypeConstraintConcept;
+  DeclContext *ConceptDC = Concept->getDeclContext();
+  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
+
+  auto BaseIt = std::find_if(
+      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == BaseName;
+        return false;
+      });
+
+  if (BaseIt == ConceptDC->decls_end()) {
+    fprintf(stderr, "\n########## NOT A VIRTUAL CONCEPT %s ##########\n",
+            BaseName.c_str());
+    return QualType();
+  }
+
+  fprintf(stderr, "\n################ VIRTUAL CONCEPT %s ##################\n",
+          cast<CXXRecordDecl>(*BaseIt)->getName().str().c_str());
+
+  std::string TypeName =
+      BaseName + "_" + QualType(UnderlyingType, 0).getAsString();
+
+  auto VCDeducedIt = std::find_if(
+      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&TypeName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == TypeName;
+        return false;
+      });
+
+  if (VCDeducedIt == ConceptDC->decls_end()) {
+    fprintf(stderr,
+            "\n########## VIRTUAL CONCEPT %s NOT INSTANTIATED ##########\n",
+            TypeName.c_str());
+    return QualType();
+  }
+  fprintf(stderr,
+          "\n################ VIRTUAL CONCEPT INSTANCE %s ##################\n",
+          cast<CXXRecordDecl>(*VCDeducedIt)->getName().str().c_str());
+
+  CXXRecordDecl *VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
+  const Type *VCType = VCDerived->getTypeForDecl();
+  return DeducedType.getTypePtr()->isPointerType()
+             ? Context.getPointerType(QualType(VCType, 0))
+             : QualType(VCType, 0);
+}
+
+//===--------------------------------------------------------------------===//
+// C++ Virtual Concepts (TFG Gonzalo Juarez)
+//===--------------------------------------------------------------------===//
 
 QualType Sema::SubstAutoType(QualType TypeWithAuto,
                              QualType TypeToReplaceAuto) {

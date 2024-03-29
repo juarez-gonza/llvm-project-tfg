@@ -9389,6 +9389,13 @@ public:
                  bool DependentDeduction = false,
                  bool IgnoreConstraints = false,
                  TemplateSpecCandidateSet *FailedTSC = nullptr);
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
+  QualType DeduceVirtualConceptType(QualType DeducedType, ConceptDecl * TypeConstraintConcept) const;
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
   void DiagnoseAutoDeductionFailure(VarDecl *VDecl, Expr *Init);
   bool DeduceReturnType(FunctionDecl *FD, SourceLocation Loc,
                         bool Diagnose = true);
