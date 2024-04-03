@@ -1332,7 +1332,6 @@ Parser::TPResult
 Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
                                   Parser::TPResult BracedCastResult,
                                   bool *InvalidAsDeclSpec) {
-  fprintf(stderr, "\n########## %s #############\n", __func__);
   auto IsPlaceholderSpecifier = [&](TemplateIdAnnotation *TemplateId,
                                     int Lookahead) {
     // We have a placeholder-constraint (we check for 'auto' or 'decltype' to

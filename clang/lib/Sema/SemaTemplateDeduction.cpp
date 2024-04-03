@@ -4804,8 +4804,6 @@ namespace {
       if (!UseTypeSugar)
         return TransformDesugared(TLB, TL);
 
-      fprintf(stderr, "\n################# %s ###############\n", __func__);
-
       QualType Result = SemaRef.Context.getAutoType(
           Replacement, TL.getTypePtr()->getKeyword(), Replacement.isNull(),
           ReplacementIsPack, TL.getTypePtr()->getTypeConstraintConcept(),
@@ -4846,7 +4844,6 @@ namespace {
     QualType Apply(TypeLoc TL) {
       // Create some scratch storage for the transformed type locations.
       // FIXME: We're just going to throw this information away. Don't build it.
-      fprintf(stderr, "\n################# %s ###############\n", __func__);
       TypeLocBuilder TLB;
       TLB.reserve(TL.getFullDataSize());
       return TransformType(TLB, TL);
@@ -4926,7 +4923,6 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
   assert(DependentDeduction || Info.getDeducedDepth() == 0);
   if (Init->containsErrors())
     return TDK_AlreadyDiagnosed;
-  fprintf(stderr, "\n############### %s ###############\n", __func__);
 
   const AutoType *AT = Type.getType()->getContainedAutoType();
   assert(AT);
@@ -5171,14 +5167,8 @@ Sema::DeduceVirtualConceptType(QualType DeducedType,
         return false;
       });
 
-  if (BaseIt == ConceptDC->decls_end()) {
-    fprintf(stderr, "\n########## NOT A VIRTUAL CONCEPT %s ##########\n",
-            BaseName.c_str());
+  if (BaseIt == ConceptDC->decls_end())
     return QualType();
-  }
-
-  fprintf(stderr, "\n################ VIRTUAL CONCEPT %s ##################\n",
-          cast<CXXRecordDecl>(*BaseIt)->getName().str().c_str());
 
   std::string TypeName =
       BaseName + "_" + QualType(UnderlyingType, 0).getAsString();
@@ -5190,15 +5180,8 @@ Sema::DeduceVirtualConceptType(QualType DeducedType,
         return false;
       });
 
-  if (VCDeducedIt == ConceptDC->decls_end()) {
-    fprintf(stderr,
-            "\n########## VIRTUAL CONCEPT %s NOT INSTANTIATED ##########\n",
-            TypeName.c_str());
+  if (VCDeducedIt == ConceptDC->decls_end())
     return QualType();
-  }
-  fprintf(stderr,
-          "\n################ VIRTUAL CONCEPT INSTANCE %s ##################\n",
-          cast<CXXRecordDecl>(*VCDeducedIt)->getName().str().c_str());
 
   CXXRecordDecl *VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
   const Type *VCType = VCDerived->getTypeForDecl();

@@ -12030,14 +12030,9 @@ static constexpr inline auto populateVirtualConcept =
 
 void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   assert(D != nullptr && "Concept Declaration cannot be nullptr");
-  fprintf(stderr, "\n\n\n### TryInstantiateVirtualConcept ###\n");
 
-  if (!tfg::isConceptVirtualizable(*this, D)) {
-    fprintf(stderr,
-            "### Cannot turn this concept into a virtual concept ###\n\n\n");
+  if (!tfg::isConceptVirtualizable(*this, D))
     return;
-  }
-  fprintf(stderr, "### Concept is virtualizable ###\n\n\n");
 
   // The generated class "leaks" to the outer scope of the concept context
   // sort of like enum members do. Get the parent scope of the concept definition
@@ -12074,7 +12069,6 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
 
   // TODO: Call PushOnScopeChains?
 
-  fprintf(stderr, "\n### Fin TryInstantiateVirtualConcept ###\n");
 }
 
 //===--------------------------------------------------------------------===//
