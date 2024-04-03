@@ -4804,6 +4804,8 @@ namespace {
       if (!UseTypeSugar)
         return TransformDesugared(TLB, TL);
 
+      fprintf(stderr, "\n################# %s ###############\n", __func__);
+
       QualType Result = SemaRef.Context.getAutoType(
           Replacement, TL.getTypePtr()->getKeyword(), Replacement.isNull(),
           ReplacementIsPack, TL.getTypePtr()->getTypeConstraintConcept(),
@@ -4844,6 +4846,7 @@ namespace {
     QualType Apply(TypeLoc TL) {
       // Create some scratch storage for the transformed type locations.
       // FIXME: We're just going to throw this information away. Don't build it.
+      fprintf(stderr, "\n################# %s ###############\n", __func__);
       TypeLocBuilder TLB;
       TLB.reserve(TL.getFullDataSize());
       return TransformType(TLB, TL);
@@ -4923,6 +4926,7 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
   assert(DependentDeduction || Info.getDeducedDepth() == 0);
   if (Init->containsErrors())
     return TDK_AlreadyDiagnosed;
+  fprintf(stderr, "\n############### %s ###############\n", __func__);
 
   const AutoType *AT = Type.getType()->getContainedAutoType();
   assert(AT);
@@ -5099,7 +5103,7 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
     // but having it be that way complicates the way we would construct
     // expressions like:
     //
-    // make_unique<SomeConcept virtual>(B);
+    // make_unique<SomeConcept virtual>(B); <-- as temp arg it refers to the base class
     //
     // since we would never be dealing with derived types
     // unless we introduce them temporaries. I dislike implicit temporaries more
