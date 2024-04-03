@@ -17,6 +17,7 @@
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Parse/ParseDiagnostic.h"
@@ -7454,6 +7455,19 @@ void Parser::ParseParameterDeclarationClause(
     ParseDeclarationSpecifiers(DS, /*TemplateInfo=*/ParsedTemplateInfo(),
                                AS_none, DeclSpecContext::DSC_normal,
                                /*LateAttrs=*/nullptr, AllowImplicitTypename);
+
+    // tfg juarez init
+    if (DS.getTypeSpecType() == TST_virtual) {
+      auto* TempId = DS.getRepAsTemplateId();
+      const char *PrevSpec = nullptr;
+      unsigned int DiagID = 0;
+      ParsedType VCTypeRep =
+        Actions.getVirtualConcept(TempId);
+      DS.ClearTypeSpecType();
+      DS.SetTypeSpecType(TST_typename, DS.getBeginLoc(), PrevSpec, DiagID,
+                         VCTypeRep, Actions.getPrintingPolicy());
+    }
+    // tfg juarez end
 
     DS.takeAttributesFrom(ArgDeclSpecAttrs);
 

@@ -9392,6 +9392,7 @@ public:
   //===--------------------------------------------------------------------===//
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
+  ParsedType getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const;
   QualType DeduceVirtualConceptType(QualType DeducedType, ConceptDecl * TypeConstraintConcept) const;
   //===--------------------------------------------------------------------===//
   // C++ Virtual Concepts (TFG Gonzalo Juarez)

@@ -5149,6 +5149,26 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 // C++ Virtual Concepts (TFG Gonzalo Juarez)
 //===--------------------------------------------------------------------===//
 
+ParsedType Sema::getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const {
+  TemplateName TN = TypeConstraint->Template.get();
+  ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
+  if (Concept == nullptr)
+    return {};
+  DeclContext *ConceptDC = Concept->getDeclContext();
+  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
+
+  auto BaseIt = std::find_if(
+      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == BaseName;
+        return false;
+  });
+  if (BaseIt == ConceptDC->decls_end())
+    return {};
+  auto *Base = cast<CXXRecordDecl>(*BaseIt);
+  return ParsedType::make(QualType(Base->getTypeForDecl(), 0));
+}
+
 QualType
 Sema::DeduceVirtualConceptType(QualType DeducedType,
                                ConceptDecl *TypeConstraintConcept) const {
