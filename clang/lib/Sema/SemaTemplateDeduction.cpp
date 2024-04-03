@@ -5084,6 +5084,30 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 
   // tfg juarez init
   if (AT->isVirtual()) {
+
+    // NOTE:
+    // char a = 'a';
+    // SomeConcept virtual A = a;
+    //
+    // does not instance the same type as
+    //
+    // int b = 1;
+    // SomeConcept virtual B = b;
+    //
+    // This sucks because one would expect
+    // `SomeConcept virtual` to always represent the same type
+    // but having it be that way complicates the way we would construct
+    // expressions like:
+    //
+    // make_unique<SomeConcept virtual>(B);
+    //
+    // since we would never be dealing with derived types
+    // unless we introduce them temporaries. I dislike implicit temporaries more
+    // than I dislike having SomeConcept virtual A and SomeConcept virtual B
+    // being different types on variable declarations (as template parameters
+    // function arguments and function return types `SomeConcept virtual` behaves
+    // more uniformly).
+
     if (!AT->isConstrained()) {
       Result = QualType();
       return TDK_Invalid;
