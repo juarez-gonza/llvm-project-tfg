@@ -3543,6 +3543,7 @@ GetTypeSourceInfoForDeclarator(TypeProcessingState &State,
 
 static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
                                              TypeSourceInfo *&ReturnTypeInfo) {
+  fprintf(stderr, "\n############ %s ###########\n", __func__);
   Sema &SemaRef = state.getSema();
   Declarator &D = state.getDeclarator();
   QualType T;
@@ -3713,6 +3714,30 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
           !D.getNumTypeObjects() &&
           D.getDeclSpec().getParsedSpecifiers() == DeclSpec::PQ_TypeSpecifier)
         break;
+
+      // TFG Gonzalo Juarez
+      // Virtual Concept allowed as template argument, it is just the base class
+      // instantiated by it. Find base class defined by virtual concept
+      if (Auto->getKeyword() == AutoTypeKeyword::Virtual) {
+	// TODO: this is the same code that show up in ParseDecl
+	// ParseParameterDeclarationClause for function parameter with
+	// virtual concept specifier. Factor this out into a common function
+        auto &DS = D.getMutableDeclSpec();
+        ParsedType VCTypeRep =
+            SemaRef.getVirtualConcept(DS.getRepAsTemplateId());
+        // Set type to be returned (T) and update its corresponding DeclSpec
+        // representation
+        T = VCTypeRep.get();
+        DS.ClearTypeSpecType();
+        {
+          const char *PrevSpec = nullptr;
+          unsigned int DiagID = 0;
+          DS.SetTypeSpecType(TST_typename, DS.getBeginLoc(), PrevSpec, DiagID,
+                             VCTypeRep, SemaRef.getPrintingPolicy());
+        }
+        break;
+      }
+
       [[fallthrough]];
     case DeclaratorContext::TemplateTypeArg:
       Error = 10; // Template type argument
@@ -3791,6 +3816,7 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
         Kind = 4;
       }
 
+
       auto *DTST = dyn_cast<DeducedTemplateSpecializationType>(Deduced);
       TemplateName TN = DTST ? DTST->getTemplateName() : TemplateName();
 
@@ -3800,6 +3826,10 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       if (auto *TD = TN.getAsTemplateDecl())
         SemaRef.NoteTemplateLocation(*TD);
 
+      fprintf(stderr,
+              "\n############### Auto Keyword misued, defaulting to int %s "
+              "################\n",
+              __func__);
       T = SemaRef.Context.IntTy;
       D.setInvalidType(true);
     } else if (Auto && D.getContext() != DeclaratorContext::LambdaExpr) {
@@ -4698,6 +4728,7 @@ static bool DiagnoseMultipleAddrSpaceAttributes(Sema &S, LangAS ASOld,
 static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                                                 QualType declSpecType,
                                                 TypeSourceInfo *TInfo) {
+  fprintf(stderr, "\n########## %s ##############\n", __func__);
   // The TypeSourceInfo that this function returns will not be a null type.
   // If there is an error, this function will fill in a dummy type as fallback.
   QualType T = declSpecType;
@@ -6075,6 +6106,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 /// The result of this call will never be null, but the associated
 /// type may be a null type if there's an unrecoverable error.
 TypeSourceInfo *Sema::GetTypeForDeclarator(Declarator &D) {
+  fprintf(stderr, "\n############ %s ###########\n", __func__);
+
   // Determine the type of the declarator. Not all forms of declarator
   // have a type.
 
@@ -6761,8 +6794,14 @@ TypeResult Sema::ActOnTypeName(Declarator &D) {
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType T = TInfo->getType();
-  if (D.isInvalidType())
+  if (D.isInvalidType()) {
+    fprintf(stderr, "\n################ %s Invalid Type ###############\n",
+            __func__);
     return true;
+  }
+
+  fprintf(stderr, "\n################ %s %s ###############\n", __func__,
+          T.getAsString().c_str());
 
   // Make sure there are no unused decl attributes on the declarator.
   // We don't want to do this for ObjC parameters because we're going

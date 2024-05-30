@@ -51,6 +51,8 @@ TypeResult Parser::ParseTypeName(SourceRange *Range, DeclaratorContext Context,
   if (DSC == DeclSpecContext::DSC_normal)
     DSC = DeclSpecContext::DSC_type_specifier;
 
+  fprintf(stderr, "\n############ %s ###########\n", __func__);
+
   // Parse the common declaration-specifiers piece.
   DeclSpec DS(AttrFactory);
   if (Attrs)
@@ -77,8 +79,10 @@ TypeResult Parser::ParseTypeName(SourceRange *Range, DeclaratorContext Context,
   if (Range)
     *Range = DeclaratorInfo.getSourceRange();
 
-  if (DeclaratorInfo.isInvalidType())
+  if (DeclaratorInfo.isInvalidType()) {
+    fprintf(stderr, "\n############ %s InvalidType ###########\n", __func__);
     return true;
+  }
 
   return Actions.ActOnTypeName(DeclaratorInfo);
 }
@@ -7458,6 +7462,10 @@ void Parser::ParseParameterDeclarationClause(
 
     // tfg juarez init
     if (DS.getTypeSpecType() == TST_virtual) {
+      // TODO: this is the same code that show up in SemaType
+      // GetDeclSpecTypeForDeclarator for template argument with
+      // virtual concept specifier. Factor this out into a common
+      // function
       auto* TempId = DS.getRepAsTemplateId();
       const char *PrevSpec = nullptr;
       unsigned int DiagID = 0;

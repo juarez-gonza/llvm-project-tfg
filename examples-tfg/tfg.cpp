@@ -1,6 +1,7 @@
 // #include <iostream>
 // #include <string>
-#include <stdio.h>
+//#include <stdio.h>
+//#include <memory>
 
 /*
 // Non-virtualizable concept
@@ -70,10 +71,12 @@ struct _tfg_virtual_Usable_char : _tfg_virtual_Usable {
   _tfg_virtual_Usable_char() : x{'a'} {}
   _tfg_virtual_Usable_char(char x) : x{x} {}
   int _tfg_virtual_use() override {
-    puts("usable_char::use()");
+    //puts("usable_char::use()");
     return use(x);
   }
-  ~_tfg_virtual_Usable_char() override { puts("~usable_char()"); }
+  ~_tfg_virtual_Usable_char() override {
+    // puts("~usable_char()");
+  }
 };
 
 /*
@@ -90,16 +93,24 @@ struct asdasd : public asd {
 };
 */
 
+template <typename T>
+struct ptr {
+  T* x;
+  T* operator->() {
+    return x;
+  }
+};
+
+void use_usable_ptr(ptr<Usable virtual> x) {
+  x->_tfg_virtual_use();
+}
+
 
 static_assert(Usable<char>, "LA PUTA MADRE");
 
 int main() {
-  /*
-  asd* x  = new asdasd;
-  delete x;
-  */
-
   Usable virtual c{'a'};
+  use_usable_ptr(ptr<Usable virtual>(&c));
   use_usable(&c);
   return 0;
 }
