@@ -3543,7 +3543,6 @@ GetTypeSourceInfoForDeclarator(TypeProcessingState &State,
 
 static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
                                              TypeSourceInfo *&ReturnTypeInfo) {
-  fprintf(stderr, "\n############ %s ###########\n", __func__);
   Sema &SemaRef = state.getSema();
   Declarator &D = state.getDeclarator();
   QualType T;
@@ -3826,10 +3825,6 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       if (auto *TD = TN.getAsTemplateDecl())
         SemaRef.NoteTemplateLocation(*TD);
 
-      fprintf(stderr,
-              "\n############### Auto Keyword misued, defaulting to int %s "
-              "################\n",
-              __func__);
       T = SemaRef.Context.IntTy;
       D.setInvalidType(true);
     } else if (Auto && D.getContext() != DeclaratorContext::LambdaExpr) {
@@ -4728,7 +4723,6 @@ static bool DiagnoseMultipleAddrSpaceAttributes(Sema &S, LangAS ASOld,
 static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                                                 QualType declSpecType,
                                                 TypeSourceInfo *TInfo) {
-  fprintf(stderr, "\n########## %s ##############\n", __func__);
   // The TypeSourceInfo that this function returns will not be a null type.
   // If there is an error, this function will fill in a dummy type as fallback.
   QualType T = declSpecType;
@@ -6106,8 +6100,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 /// The result of this call will never be null, but the associated
 /// type may be a null type if there's an unrecoverable error.
 TypeSourceInfo *Sema::GetTypeForDeclarator(Declarator &D) {
-  fprintf(stderr, "\n############ %s ###########\n", __func__);
-
   // Determine the type of the declarator. Not all forms of declarator
   // have a type.
 
@@ -6794,14 +6786,8 @@ TypeResult Sema::ActOnTypeName(Declarator &D) {
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType T = TInfo->getType();
-  if (D.isInvalidType()) {
-    fprintf(stderr, "\n################ %s Invalid Type ###############\n",
-            __func__);
+  if (D.isInvalidType())
     return true;
-  }
-
-  fprintf(stderr, "\n################ %s %s ###############\n", __func__,
-          T.getAsString().c_str());
 
   // Make sure there are no unused decl attributes on the declarator.
   // We don't want to do this for ObjC parameters because we're going

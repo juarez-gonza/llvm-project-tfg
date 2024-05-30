@@ -200,7 +200,6 @@ bool Parser::isCXXSimpleDeclaration(bool AllowForRangeDecl) {
 /// Try to consume a token sequence that we've already identified as
 /// (potentially) starting a decl-specifier.
 Parser::TPResult Parser::TryConsumeDeclarationSpecifier() {
-  fprintf(stderr, "\n############# %s #############\n", __func__);
   switch (Tok.getKind()) {
   case tok::kw__Atomic:
     if (NextToken().isNot(tok::l_paren)) {
@@ -1333,7 +1332,6 @@ Parser::TPResult
 Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
                                   Parser::TPResult BracedCastResult,
                                   bool *InvalidAsDeclSpec) {
-  fprintf(stderr, "\n############# %s #############\n", __func__);
   auto IsPlaceholderSpecifier = [&](TemplateIdAnnotation *TemplateId,
                                     int Lookahead) {
     // We have a placeholder-constraint (we check for 'auto' or 'decltype' to

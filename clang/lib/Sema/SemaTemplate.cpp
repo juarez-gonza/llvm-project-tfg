@@ -991,8 +991,6 @@ ParsedTemplateArgument Sema::ActOnTemplateTypeArgument(TypeResult ParsedType) {
   if (T.isNull())
     return ParsedTemplateArgument();
   assert(TInfo && "template argument with no location");
-  fprintf(stderr, "\n############ %s, template type argument: %s ###########\n",
-          __func__, T.getAsString().c_str());
 
   // If we might have formed a deduced template specialization type, convert
   // it to a template template argument.

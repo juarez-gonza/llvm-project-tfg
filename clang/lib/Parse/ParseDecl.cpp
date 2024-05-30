@@ -51,8 +51,6 @@ TypeResult Parser::ParseTypeName(SourceRange *Range, DeclaratorContext Context,
   if (DSC == DeclSpecContext::DSC_normal)
     DSC = DeclSpecContext::DSC_type_specifier;
 
-  fprintf(stderr, "\n############ %s ###########\n", __func__);
-
   // Parse the common declaration-specifiers piece.
   DeclSpec DS(AttrFactory);
   if (Attrs)
@@ -79,10 +77,8 @@ TypeResult Parser::ParseTypeName(SourceRange *Range, DeclaratorContext Context,
   if (Range)
     *Range = DeclaratorInfo.getSourceRange();
 
-  if (DeclaratorInfo.isInvalidType()) {
-    fprintf(stderr, "\n############ %s InvalidType ###########\n", __func__);
+  if (DeclaratorInfo.isInvalidType())
     return true;
-  }
 
   return Actions.ActOnTypeName(DeclaratorInfo);
 }

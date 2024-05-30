@@ -1588,26 +1588,18 @@ ParsedTemplateArgument Parser::ParseTemplateArgument() {
   //   In a template-argument, an ambiguity between a type-id and an
   //   expression is resolved to a type-id, regardless of the form of
   //   the corresponding template-parameter.
-
   // Therefore, we initially try to parse a type-id - and isCXXTypeId might look
   // up and annotate an identifier as an id-expression during disambiguation,
   // so enter the appropriate context for a constant expression template
   // argument before trying to disambiguate.
-
-  fprintf(stderr, "\n############# %s #############\n", __func__);
 
   EnterExpressionEvaluationContext EnterConstantEvaluated(
     Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated,
     /*LambdaContextDecl=*/nullptr,
     /*ExprContext=*/Sema::ExpressionEvaluationContextRecord::EK_TemplateArgument);
   if (isCXXTypeId(TypeIdAsTemplateArgument)) {
-    fprintf(stderr, "\n############## After isCXXTypeID %s ############\n", __func__);
     TypeResult TypeArg = ParseTypeName(
 				       /*Range=*/nullptr, DeclaratorContext::TemplateArg);
-    fprintf(
-        stderr,
-        "\n############## isCXXTypeID - ParseTypeName done %s ############\n",
-        __func__);
     return Actions.ActOnTemplateTypeArgument(TypeArg);
   }
 
