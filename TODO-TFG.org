@@ -1,0 +1,35 @@
+#+AUTHOR: Gonzalo Juarez
+#+TITLE: TODO LIST
+
+- Parsear template arguments a virtual concepts como si fueran el tipo
+  base.
+  Ver esta nota:
+  #+BEGIN_SRC C++
+    // NOTE:
+    // char a = 'a';
+    // SomeConcept virtual A = a;
+    //
+    // does not instance the same type as
+    //
+    // int b = 1;
+    // SomeConcept virtual B = b;
+    //
+    // This sucks because one would expect
+    // `SomeConcept virtual` to always represent the same type
+    // but having it be that way complicates the way we would construct
+    // expressions like:
+    //
+    // make_unique<SomeConcept virtual>(B); <-- as temp arg it refers to the base class
+    //
+    // since we would never be dealing with derived types
+    // unless we introduce them temporaries. I dislike implicit temporaries more
+    // than I dislike having SomeConcept virtual A and SomeConcept virtual B
+    // being different types on variable declarations (as template parameters
+    // function arguments and function return types `SomeConcept virtual` behaves
+    // more uniformly).
+  #+END_SRC
+
+- Generar tipo derivado automáticamente.
+
+- Implementar función libre para puntero o referencia a clase base
+  generada por virtual concept.
