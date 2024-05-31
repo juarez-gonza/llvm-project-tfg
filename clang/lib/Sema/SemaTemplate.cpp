@@ -11806,6 +11806,26 @@ SourceLocation Sema::getTopMostPointOfInstantiation(const NamedDecl *N) const {
 
 namespace tfg {
 
+namespace impl {
+const char *virtual_concept_prefix = "_tfg_virtual_";
+} // namespace impl
+
+std::string ToVirtualConceptBaseName(ConceptDecl *Concept) {
+  return impl::virtual_concept_prefix + Concept->getDeclName().getAsString();
+}
+
+std::string ToVirtualConceptDerivedName(std::string VCBaseName,
+                                        const Type *UnderlyingType) {
+  return std::move(VCBaseName) + "_" +
+         QualType(UnderlyingType, 0).getAsString();
+}
+
+std::string ToVirtualConceptDerivedName(ConceptDecl *Concept,
+                                        const Type *UnderlyingType) {
+  return ToVirtualConceptDerivedName(ToVirtualConceptBaseName(Concept),
+                                     UnderlyingType);
+}
+
 static constexpr inline auto isInstantiationDependent = [](QualType Ty) {
   return Ty->isTemplateTypeParmType() || Ty->isInstantiationDependentType();
 };
@@ -11986,7 +12006,7 @@ private:
       std::string CalleeName;
       llvm::raw_string_ostream ss{CalleeName};
       Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
-      MethodName = llvm::formatv("_tfg_virtual_{0}", CalleeName);
+      MethodName = llvm::formatv("{0}_{1}", impl::virtual_concept_prefix , CalleeName);
     }
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
@@ -12044,8 +12064,6 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   if (!tfg::isConceptVirtualizable(*this, D))
     return nullptr;
 
-  auto BaseName = "_tfg_virtual_" + D->getDeclName().getAsString();
-
   // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that
   // creats a record at the TU DeclContext, and this feature needs the record
   // declaration at the same context level as the c++20 concept. However, do
@@ -12058,7 +12076,7 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
   auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
       Context, BaseParentScope->getEntity(), D->getBeginLoc(),
-      &Context.Idents.get(BaseName));
+      &Context.Idents.get(tfg::ToVirtualConceptBaseName(D)));
 
   // Populate with methods
   tfg::populateVirtualConcept(*this, D, Base);
@@ -12091,7 +12109,7 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
 QualType Sema::getVirtualConceptBase(ConceptDecl *Concept) const {
   assert(Concept != nullptr && "Passed in Concept cannot be null");
   DeclContext *ConceptDC = Concept->getDeclContext();
-  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
+  auto BaseName = tfg::ToVirtualConceptBaseName(Concept);
   auto BaseIt = std::find_if(
       ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
         if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
@@ -12117,16 +12135,18 @@ QualType Sema::getVirtualConceptDerived(ConceptDecl *Concept,
                                         const Type *UnderlyingType) const {
   // Get the name of the virtual concept's derived class for the underlying type
   DeclContext *ConceptDC = Concept->getDeclContext();
-  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
-  std::string TypeName =
-      BaseName + "_" + QualType(UnderlyingType, 0).getAsString();
-  // Find the type in the context of the UnderlyingType (TODO: use the concept of the underlying type)
-  auto VCDeducedIt = std::find_if(
-      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&TypeName](Decl *D) {
-        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
-          return R->getName().str() == TypeName;
-        return false;
-  });
+  auto VCDerivedName =
+      tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType);
+
+  // Find the type in the context of the UnderlyingType (TODO: use the concept
+  // of the underlying type)
+  auto VCDeducedIt =
+      std::find_if(ConceptDC->decls_begin(), ConceptDC->decls_end(),
+                   [&VCDerivedName](Decl *D) {
+                     if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+                       return R->getName().str() == VCDerivedName;
+                     return false;
+                   });
   if (VCDeducedIt == ConceptDC->decls_end())
     return {};
   auto *VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
