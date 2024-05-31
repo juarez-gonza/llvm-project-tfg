@@ -12006,7 +12006,7 @@ private:
       std::string CalleeName;
       llvm::raw_string_ostream ss{CalleeName};
       Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
-      MethodName = llvm::formatv("{0}_{1}", impl::virtual_concept_prefix , CalleeName);
+      MethodName = impl::virtual_concept_prefix + std::move(CalleeName);
     }
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
