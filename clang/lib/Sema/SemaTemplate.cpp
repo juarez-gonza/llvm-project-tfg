@@ -9243,7 +9243,7 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
   if (AddToScope)
     PushOnScopeChains(NewDecl, S);
 
-  TryInstantiateVirtualConcept(NewDecl);
+  TryInstantiateVirtualConceptBase(NewDecl);
 
   return NewDecl;
 }
@@ -12039,12 +12039,11 @@ static constexpr inline auto populateVirtualConcept =
     };
 } // namespace tfg
 
-void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
+CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   assert(D != nullptr && "Concept Declaration cannot be nullptr");
 
   if (!tfg::isConceptVirtualizable(*this, D))
-    return;
-
+    return nullptr;
 
   auto BaseName = "_tfg_virtual_" + D->getDeclName().getAsString();
 
@@ -12055,11 +12054,12 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   // code stems from thoughtful copy and pasting
 
   // The generated class "leaks" to the outer scope of the concept context
-  // sort of like enum members do. Get the parent scope of the concept definition
-  Scope *BaseParentScope = getScopeForContext(D->getDeclContext()) ;
+  // sort of like enum members do. Get the parent scope of the concept
+  // definition
+  Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
   auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
       Context, BaseParentScope->getEntity(), D->getBeginLoc(),
-						       &Context.Idents.get(BaseName));
+      &Context.Idents.get(BaseName));
 
   // Populate with methods
   tfg::populateVirtualConcept(*this, D, Base);
@@ -12067,6 +12067,38 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   // Finish base class definition
   Base->completeDefinition();
   CheckCompletedCXXClass(BaseParentScope, Base);
+
+  return Base;
+}
+
+CXXRecordDecl *
+Sema::TryInstantiateVirtualConceptDerived(QualType DeducedType,
+                                          ConceptDecl *Concept) {
+  assert(!DeducedType.isNull() && Concept != nullptr &&
+         "DeducedType and Concept must be non null");
+
+  // First, check if the virtual concept's base class exists.
+  // If it doesn't, then try to instantiate it (if it fails to be instantiated
+  // then fail altogether
+  DeclContext *ConceptDC = Concept->getDeclContext();
+  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
+
+  auto BaseIt = std::find_if(
+      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == BaseName;
+        return false;
+  });
+
+  CXXRecordDecl *Base = BaseIt != ConceptDC->decls_end()
+                            ? cast<CXXRecordDecl>(*BaseIt)
+                            : TryInstantiateVirtualConceptBase(Concept);
+  if (Base == nullptr)
+    return nullptr; // fail
+
+  // Instantiate virtual concept's derived class (TODO)
+
+  return nullptr;
 }
 
 //===--------------------------------------------------------------------===//

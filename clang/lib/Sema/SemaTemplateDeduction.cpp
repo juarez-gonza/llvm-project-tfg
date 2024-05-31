@@ -5171,28 +5171,20 @@ ParsedType Sema::getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const {
 
 QualType
 Sema::DeduceVirtualConceptType(QualType DeducedType,
-                               ConceptDecl *TypeConstraintConcept) const {
+                               ConceptDecl *Concept) {
+  // Find the underlying type of the deduced concept
   auto *UnderlyingType =
       DeducedType.getTypePtr()->isPointerType()
           ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
-          : DeducedType.getTypePtr();
-  ConceptDecl *Concept = TypeConstraintConcept;
+      : DeducedType.getTypePtr();
+
+  // Find the virtual concept's derived class by its name (TODO: or try to instantiate it if not found)
   DeclContext *ConceptDC = Concept->getDeclContext();
   std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
-
-  auto BaseIt = std::find_if(
-      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
-        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
-          return R->getName().str() == BaseName;
-        return false;
-      });
-
-  if (BaseIt == ConceptDC->decls_end())
-    return QualType();
-
   std::string TypeName =
       BaseName + "_" + QualType(UnderlyingType, 0).getAsString();
 
+  // Find the deduced type if it exists
   auto VCDeducedIt = std::find_if(
       ConceptDC->decls_begin(), ConceptDC->decls_end(), [&TypeName](Decl *D) {
         if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
@@ -5200,10 +5192,16 @@ Sema::DeduceVirtualConceptType(QualType DeducedType,
         return false;
       });
 
-  if (VCDeducedIt == ConceptDC->decls_end())
+  // If virtual concept's derived class was found, then use it. Otherwise, try to instantiate it
+  CXXRecordDecl *VCDerived = VCDeducedIt != ConceptDC->decls_end()
+                                 ? cast<CXXRecordDecl>(*VCDeducedIt)
+                                 : TryInstantiateVirtualConceptDerived(
+                                       DeducedType, Concept);
+  if (VCDerived == nullptr)
+    // Virtual concept not found nor instantiated
     return QualType();
 
-  CXXRecordDecl *VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
+  // Return the adequate virtual concept's derived class
   const Type *VCType = VCDerived->getTypeForDecl();
   return DeducedType.getTypePtr()->isPointerType()
              ? Context.getPointerType(QualType(VCType, 0))
