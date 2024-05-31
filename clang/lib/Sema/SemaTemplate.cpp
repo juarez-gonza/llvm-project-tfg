@@ -12080,60 +12080,85 @@ public:
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
-    // // Get the compound requirement callee name, this will be used to
-    // // create the virtual method
-    // auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
-    // std::string MethodName;
-    // {
-    //   std::string CalleeName;
-    //   llvm::raw_string_ostream ss{CalleeName};
-    //   Callee->printPretty(ss, nullptr,
-    //   PrintingPolicy(SemaRef.getLangOpts())); MethodName =
-    //   impl::virtual_concept_prefix + std::move(CalleeName);
-    // }
-    // auto &MethodII = SemaRef.Context.Idents.get(MethodName);
+    // Get the compound requirement callee name, this will be used to
+    // create the virtual method
+    auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
+    std::string MethodName;
+    {
+      std::string CalleeName;
+      llvm::raw_string_ostream ss{CalleeName};
+      Callee->printPretty(ss, nullptr,
+      PrintingPolicy(SemaRef.getLangOpts())); MethodName =
+      impl::virtual_concept_prefix + std::move(CalleeName);
+    }
+    auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
-    // // Create the method
-    // CXXMethodDecl *Method = CXXMethodDecl::Create(
-    //     SemaRef.Context, Base, Callee->getExprLoc(),
-    //     DeclarationNameInfo((DeclarationName(&MethodII)),
-    //     Callee->getExprLoc()), MethodType,
-    //     /*Tinfo=*/nullptr, SC_None,
-    //     SemaRef.getCurFPFeatures().isFPConstrained(),
-    //     /*isInline=*/true, ConstexprSpecKind::Unspecified,
-    //     SourceLocation(),
-    //     /*TrailingRequiresClause=*/nullptr);
+    // Create the method
+    CXXMethodDecl *Method = CXXMethodDecl::Create(
+        SemaRef.Context, Base, Callee->getExprLoc(),
+        DeclarationNameInfo((DeclarationName(&MethodII)),
+        Callee->getExprLoc()), MethodType,
+        /*Tinfo=*/nullptr, SC_None,
+        SemaRef.getCurFPFeatures().isFPConstrained(),
+        /*isInline=*/true, ConstexprSpecKind::Unspecified,
+        SourceLocation(),
+        /*TrailingRequiresClause=*/nullptr);
 
-    // // Attach params
-    // SmallVector<ParmVarDecl *> Params;
-    // for (auto Arg :
-    //      MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
-    //   if (!isInstantiationDependent(Arg)) {
-    //     auto *P =
-    //         ParmVarDecl::Create(SemaRef.Context, Method,
-    //         Method->getBeginLoc(),
-    //                             Method->getBeginLoc(), nullptr, Arg,
-    //                             SemaRef.Context.getTrivialTypeSourceInfo(
-    //                                 Arg, Method->getBeginLoc()),
-    //                             SC_None, nullptr);
-    //     Params.push_back(P);
-    //     P->setOwningFunction(Method);
-    //   }
-    // Method->setParams(Params);
+    // Attach params
+    SmallVector<ParmVarDecl *> Params;
+    for (auto Arg :
+         MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
+      if (!isInstantiationDependent(Arg)) {
+        auto *P =
+            ParmVarDecl::Create(SemaRef.Context, Method,
+            Method->getBeginLoc(),
+                                Method->getBeginLoc(), nullptr, Arg,
+                                SemaRef.Context.getTrivialTypeSourceInfo(
+                                    Arg, Method->getBeginLoc()),
+                                SC_None, nullptr);
+        Params.push_back(P);
+        P->setOwningFunction(Method);
+      }
+    Method->setParams(Params);
 
-    // // Set public, virtual and check that I haven't screwed up while doing so
-    // Method->setAccess(AS_public); Method->setIsPureVirtual();
-    // Method->setVirtualAsWritten(true);
-    // SemaRef.CheckPureMethod(Method, SourceRange());
+    // Set public
+    Method->setAccess(AS_public);
 
-    // // NOTE: Call PushOnScopeChains?
+    // TODO: lookup the actual function (using the Method just to have some IDE completion while writing this code)
+    FunctionDecl* FD = Method;
+    const auto *FDType = FD->getType()->castAs<FunctionType>();
+    auto FDQType = QualType(FDType, 0);
 
-    // return Method;
-    return nullptr;
+    // Create a reference to the declaration.
+    auto *DRE = new (SemaRef.Context) DeclRefExpr(
+        SemaRef.Context, FD, false, FDQType, VK_LValue, SourceLocation());
+
+    // More "boilerplate" in order to do a function call expression
+    auto FPtr = SemaRef.Context.getPointerType(FDQType);
+    auto *ICE =
+        ImplicitCastExpr::Create(SemaRef.Context, FPtr, CK_FunctionToPointerDecay,
+                                 DRE, nullptr, VK_PRValue, FPOptionsOverride());
+
+    // The actual call expression
+    auto *Exp = CallExpr::Create(
+        SemaRef.Context, ICE, /* TODO: pass the actual arguments*/ {},
+        FDType->getCallResultType(SemaRef.Context), VK_PRValue,
+        SourceLocation(), FPOptionsOverride());
+
+    // And the return statement
+    auto *RetStmt = ReturnStmt::Create(SemaRef.Context, SourceLocation(), Exp, nullptr);
+
+    // Add all of this as the body of the newly created method
+    auto *Body = CompoundStmt::Create(SemaRef.Context, {RetStmt}, {}, {}, {});
+    Method->setBody(Body);
+
+    // Set method as an override of the method in the virtual concept's base class
+    SemaRef.AddOverriddenMethods(ToPopulate, Method);
+    return Method;
   }
 
   void DefineDestructor() {
-    SemaRef.DefineVirtualConceptDestructor(ToPopulate);
+    // SemaRef.DefineVirtualConceptDestructor(ToPopulate);
   }
 
 }; // PopulateVirtualConceptDerived
