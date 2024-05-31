@@ -588,6 +588,12 @@ public:
                                                  SourceLocation Loc,
                                                  IdentifierInfo *Id);
 
+  static CXXRecordDecl *CreateVirtualConceptDerived(const ASTContext &C,
+                                                    DeclContext *DC,
+                                                    SourceLocation Loc,
+                                                    IdentifierInfo *Id,
+                                                    TypeSourceInfo *VCBaseSrcInfo);
+
   //===--------------------------------------------------------------------===//
   // C++ Variadic Templates (C++0x [temp.variadic])
   //===--------------------------------------------------------------------===//

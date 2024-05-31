@@ -37,6 +37,7 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Sema/Ownership.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
@@ -164,14 +165,35 @@ CXXRecordDecl::CreateLambda(const ASTContext &C, DeclContext *DC,
 // C++ Virtual Concepts (TFG Gonzalo Juarez)
 //===--------------------------------------------------------------------===//
 
-CXXRecordDecl *
-CXXRecordDecl::CreateVirtualConceptBase(const ASTContext &C, DeclContext *DC, SourceLocation Loc, IdentifierInfo* Id) {
+CXXRecordDecl *CXXRecordDecl::CreateVirtualConceptBase(const ASTContext &C,
+                                                       DeclContext *DC,
+                                                       SourceLocation Loc,
+                                                       IdentifierInfo *Id) {
   auto *R = new (C, DC) CXXRecordDecl(CXXRecord, TagTypeKind::Class, C, DC, Loc,
                                       Loc, Id, nullptr);
   R->startDefinition();
   R->setImplicit(true);
   C.getTypeDeclType(R, /*PrevDecl=*/nullptr);
   DC->addDecl(R);
+  return R;
+}
+
+CXXRecordDecl *CXXRecordDecl::CreateVirtualConceptDerived(
+    const ASTContext &C, DeclContext *DC, SourceLocation Loc,
+    IdentifierInfo *Id, TypeSourceInfo *VCBaseSrcInfo) {
+
+  auto *R = new (C, DC) CXXRecordDecl(CXXRecord, TagTypeKind::Class, C, DC, Loc,
+                                      Loc, Id, nullptr);
+  R->startDefinition();
+  R->setImplicit(true);
+  C.getTypeDeclType(R, /*PrevDecl=*/nullptr);
+  DC->addDecl(R);
+
+  // Create and add base specifier
+  auto *BaseSpecifier = new (C) CXXBaseSpecifier(
+      SourceRange(), false, true, AS_public, VCBaseSrcInfo, SourceLocation());
+  R->setBases(&BaseSpecifier, 1);
+
   return R;
 }
 
