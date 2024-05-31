@@ -12133,21 +12133,25 @@ ParsedType Sema::getVirtualConceptBase(TemplateIdAnnotation *TypeConstraint) con
 
 QualType Sema::getVirtualConceptDerived(ConceptDecl *Concept,
                                         const Type *UnderlyingType) const {
+  // Get the type's context (if it's user defined - tag - then fetch it from its
+  // context, otherwise get the TU's context)
+  auto *TDecl = UnderlyingType->getAsTagDecl();
+  DeclContext *DeclCtx = TDecl != nullptr ? TDecl->getDeclContext()
+                                          : Context.getTranslationUnitDecl();
+
   // Get the name of the virtual concept's derived class for the underlying type
-  DeclContext *ConceptDC = Concept->getDeclContext();
   auto VCDerivedName =
       tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType);
 
   // Find the type in the context of the UnderlyingType (TODO: use the concept
   // of the underlying type)
-  auto VCDeducedIt =
-      std::find_if(ConceptDC->decls_begin(), ConceptDC->decls_end(),
-                   [&VCDerivedName](Decl *D) {
-                     if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
-                       return R->getName().str() == VCDerivedName;
-                     return false;
-                   });
-  if (VCDeducedIt == ConceptDC->decls_end())
+  auto VCDeducedIt = std::find_if(
+      DeclCtx->decls_begin(), DeclCtx->decls_end(), [&VCDerivedName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == VCDerivedName;
+        return false;
+      });
+  if (VCDeducedIt == DeclCtx->decls_end())
     return {};
   auto *VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
   return QualType(VCDerived->getTypeForDecl(), 0);
