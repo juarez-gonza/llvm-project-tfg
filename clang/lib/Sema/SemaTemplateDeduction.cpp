@@ -5149,14 +5149,10 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 // C++ Virtual Concepts (TFG Gonzalo Juarez)
 //===--------------------------------------------------------------------===//
 
-ParsedType Sema::getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const {
-  TemplateName TN = TypeConstraint->Template.get();
-  ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
-  if (Concept == nullptr)
-    return {};
+QualType Sema::getVirtualConcept(ConceptDecl *Concept) const {
+  assert(Concept != nullptr && "Passed in Concept cannot be null");
   DeclContext *ConceptDC = Concept->getDeclContext();
   std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
-
   auto BaseIt = std::find_if(
       ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
         if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
@@ -5166,7 +5162,16 @@ ParsedType Sema::getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const {
   if (BaseIt == ConceptDC->decls_end())
     return {};
   auto *Base = cast<CXXRecordDecl>(*BaseIt);
-  return ParsedType::make(QualType(Base->getTypeForDecl(), 0));
+  return QualType(Base->getTypeForDecl(), 0);
+}
+
+ParsedType Sema::getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const {
+  TemplateName TN = TypeConstraint->Template.get();
+  ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
+  if (Concept == nullptr)
+    return {};
+  auto VCType = getVirtualConcept(Concept);
+  return VCType.isNull() ? ParsedType() : ParsedType::make(VCType);
 }
 
 QualType
@@ -5197,9 +5202,10 @@ Sema::DeduceVirtualConceptType(QualType DeducedType,
                                  ? cast<CXXRecordDecl>(*VCDeducedIt)
                                  : TryInstantiateVirtualConceptDerived(
                                        DeducedType, Concept);
-  if (VCDerived == nullptr)
+  if (VCDerived == nullptr) {
     // Virtual concept not found nor instantiated
     return QualType();
+  }
 
   // Return the adequate virtual concept's derived class
   const Type *VCType = VCDerived->getTypeForDecl();
@@ -5213,12 +5219,16 @@ TypeResult Sema::setVirtualConceptDeclSpec(DeclSpec &DS) {
          "Must be called with TST_virtual DeclSpec");
 
   auto *TempId = DS.getRepAsTemplateId();
-  ParsedType VCTypeRep = getVirtualConcept(TempId);
-  if (!VCTypeRep) // virtual concept base not found
-    // TODO: try to instantiate here, fail if instantiation fails
-    // for the moment we just fail here
+
+  // We know there is a concept involved here since TST == TST_virtual (no need
+  // to check for dyn_cast returning nullptr)
+  TemplateName TN = TempId->Template.get();
+  ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
+  auto VCType = findOrInstantiateVirtualConceptBase(Concept);
+  if (VCType.isNull()) // Failed to find or instantiate
     return true;
 
+  auto VCTypeRep = ParsedType::make(VCType);
   { // Reset DeclSpec to that of a type (since the virtual concept base is just
     // that)
     const char *PrevSpec = nullptr;

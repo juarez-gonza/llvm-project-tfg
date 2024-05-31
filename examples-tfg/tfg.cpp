@@ -1,4 +1,4 @@
-// #include <iostream>
+#include <iostream>
 // #include <string>
 //#include <stdio.h>
 //#include <memory>
@@ -71,11 +71,11 @@ struct _tfg_virtual_Usable_char : _tfg_virtual_Usable {
   _tfg_virtual_Usable_char() : x{'a'} {}
   _tfg_virtual_Usable_char(char x) : x{x} {}
   int _tfg_virtual_use() override {
-    //puts("usable_char::use()");
+    puts("usable_char::use()");
     return use(x);
   }
   ~_tfg_virtual_Usable_char() override {
-    // puts("~usable_char()");
+    puts("~usable_char()");
   }
 };
 

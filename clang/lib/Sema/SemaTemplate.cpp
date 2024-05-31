@@ -9243,8 +9243,6 @@ Decl *Sema::ActOnConceptDefinition(Scope *S,
   if (AddToScope)
     PushOnScopeChains(NewDecl, S);
 
-  TryInstantiateVirtualConceptBase(NewDecl);
-
   return NewDecl;
 }
 
@@ -12071,6 +12069,18 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   return Base;
 }
 
+QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
+  auto VCType = getVirtualConcept(Concept);
+  if (VCType.isNull()) {
+    // virtual concept's base not found, try to instantiate it or fail
+    if (auto *Base = TryInstantiateVirtualConceptBase(Concept); Base != nullptr)
+      VCType = QualType(Base->getTypeForDecl(), 0);
+    else
+      return {};
+  }
+  return VCType;
+}
+
 CXXRecordDecl *
 Sema::TryInstantiateVirtualConceptDerived(QualType DeducedType,
                                           ConceptDecl *Concept) {
@@ -12080,21 +12090,10 @@ Sema::TryInstantiateVirtualConceptDerived(QualType DeducedType,
   // First, check if the virtual concept's base class exists.
   // If it doesn't, then try to instantiate it (if it fails to be instantiated
   // then fail altogether
-  DeclContext *ConceptDC = Concept->getDeclContext();
-  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
 
-  auto BaseIt = std::find_if(
-      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
-        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
-          return R->getName().str() == BaseName;
-        return false;
-  });
-
-  CXXRecordDecl *Base = BaseIt != ConceptDC->decls_end()
-                            ? cast<CXXRecordDecl>(*BaseIt)
-                            : TryInstantiateVirtualConceptBase(Concept);
-  if (Base == nullptr)
-    return nullptr; // fail
+  auto BaseT = findOrInstantiateVirtualConceptBase(Concept);
+  if (BaseT.isNull()) // Base not found nor instantiated, fail
+    return nullptr;
 
   // Instantiate virtual concept's derived class (TODO)
 

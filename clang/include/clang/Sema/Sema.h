@@ -8865,6 +8865,8 @@ public:
 
   CXXRecordDecl* TryInstantiateVirtualConceptBase(ConceptDecl *D);
 
+  QualType findOrInstantiateVirtualConceptBase(ConceptDecl *Concept);
+
   CXXRecordDecl *
   TryInstantiateVirtualConceptDerived(QualType DeducedType,
                                       ConceptDecl *TypeConstraintConcept);
@@ -9405,6 +9407,7 @@ public:
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
 
+  QualType getVirtualConcept(ConceptDecl *TypeConstraintConcept) const;
   ParsedType getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const;
 
   QualType DeduceVirtualConceptType(QualType DeducedType, ConceptDecl * TypeConstraintConcept);
