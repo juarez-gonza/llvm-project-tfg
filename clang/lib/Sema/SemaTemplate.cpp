@@ -12071,31 +12071,32 @@ static constexpr inline auto populateVirtualConceptBase =
 namespace impl {
 class PopulateVirtualConceptDerived
     : public PopulateVirtualConceptCRTP<PopulateVirtualConceptDerived> {
-  CXXRecordDecl *Base;
+      CXXRecordDecl *Base;
+      QualType UnderlyingType;
 
 public:
   PopulateVirtualConceptDerived(Sema &SemaRef, ConceptDecl *Concept,
-                                CXXRecordDecl *Base, CXXRecordDecl *Derived)
-      : PopulateVirtualConceptCRTP(SemaRef, Concept, Derived), Base{Base} {}
+                                CXXRecordDecl *Base, CXXRecordDecl *Derived, const Type* UnderlyingType)
+  : PopulateVirtualConceptCRTP(SemaRef, Concept, Derived), Base{Base}, UnderlyingType{QualType(UnderlyingType, 0)} {}
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
     auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
-    std::string MethodName;
+    std::string CalleeName;
     {
-      std::string CalleeName;
       llvm::raw_string_ostream ss{CalleeName};
       Callee->printPretty(ss, nullptr,
-      PrintingPolicy(SemaRef.getLangOpts())); MethodName =
-      impl::virtual_concept_prefix + std::move(CalleeName);
+      PrintingPolicy(SemaRef.getLangOpts()));
     }
+
+    auto MethodName = impl::virtual_concept_prefix + std::move(CalleeName);
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
     // Create the method
     CXXMethodDecl *Method = CXXMethodDecl::Create(
-        SemaRef.Context, Base, Callee->getExprLoc(),
+        SemaRef.Context, ToPopulate, Callee->getExprLoc(),
         DeclarationNameInfo((DeclarationName(&MethodII)),
         Callee->getExprLoc()), MethodType,
         /*Tinfo=*/nullptr, SC_None,
@@ -12104,11 +12105,13 @@ public:
         SourceLocation(),
         /*TrailingRequiresClause=*/nullptr);
 
-    // Attach params
+    // Attach params and create call args
     SmallVector<ParmVarDecl *> Params;
+    SmallVector<Expr *> Args;
     for (auto Arg :
          MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
       if (!isInstantiationDependent(Arg)) {
+	// Param
         auto *P =
             ParmVarDecl::Create(SemaRef.Context, Method,
             Method->getBeginLoc(),
@@ -12118,13 +12121,32 @@ public:
                                 SC_None, nullptr);
         Params.push_back(P);
         P->setOwningFunction(Method);
+
+	// Expr in Args
+	auto *DRE = new (SemaRef.Context) DeclRefExpr(
+						      SemaRef.Context, P, false, Arg, VK_LValue, SourceLocation());
+	Args.push_back(ImplicitCastExpr::Create(SemaRef.Context, Arg, CK_FunctionToPointerDecay,
+						DRE, nullptr, VK_LValue, FPOptionsOverride()));
+      } else {
+        auto *ThisExpr = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
+                                             Method->getThisType(), false);
+        Args.push_back(UnaryOperator::Create(
+            SemaRef.Context, ThisExpr, UO_Deref, ThisExpr->getType(), VK_LValue,
+            OK_Ordinary, SourceLocation(), false, FPOptionsOverride()));
       }
     Method->setParams(Params);
 
     // Set public
     Method->setAccess(AS_public);
 
-    // TODO: lookup the actual function (using the Method just to have some IDE completion while writing this code)
+
+    // TODO: lookup the actual function (using the Method just to have some IDE
+    // completion while writing this code)
+    ADLResult Functions;
+    auto& FunctionII = SemaRef.Context.Idents.get(CalleeName);
+    SemaRef.ArgumentDependentLookup(DeclarationName{&FunctionII},
+                                    SourceLocation(), Args, Functions);
+
     FunctionDecl* FD = Method;
     const auto *FDType = FD->getType()->castAs<FunctionType>();
     auto FDQType = QualType(FDType, 0);
@@ -12140,13 +12162,13 @@ public:
                                  DRE, nullptr, VK_PRValue, FPOptionsOverride());
 
     // The actual call expression
-    auto *Exp = CallExpr::Create(
-        SemaRef.Context, ICE, /* TODO: pass the actual arguments*/ {},
+    auto *CallExp = CallExpr::Create(
+        SemaRef.Context, ICE, Args,
         FDType->getCallResultType(SemaRef.Context), VK_PRValue,
-        SourceLocation(), FPOptionsOverride());
+				     SourceLocation(), FPOptionsOverride());
 
     // And the return statement
-    auto *RetStmt = ReturnStmt::Create(SemaRef.Context, SourceLocation(), Exp, nullptr);
+    auto *RetStmt = ReturnStmt::Create(SemaRef.Context, SourceLocation(), CallExp, nullptr);
 
     // Add all of this as the body of the newly created method
     auto *Body = CompoundStmt::Create(SemaRef.Context, {RetStmt}, {}, {}, {});
@@ -12166,8 +12188,8 @@ public:
 
 static constexpr inline auto populateVirtualConceptDerived =
     [](Sema &SemaRef, ConceptDecl *Concept, CXXRecordDecl *Base,
-       CXXRecordDecl *Derived) {
-      impl::PopulateVirtualConceptDerived{SemaRef, Concept, Base, Derived}();
+       CXXRecordDecl *Derived, const Type *UnderlyingType) {
+      impl::PopulateVirtualConceptDerived{SemaRef, Concept, Base, Derived, UnderlyingType}();
     };
 
 } // namespace tfg
@@ -12238,8 +12260,9 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
       VCBaseSrcInfo);
 
   // Populate with methods
-  tfg::populateVirtualConceptDerived(
-      *this, Concept, BaseT.getTypePtr()->getAsCXXRecordDecl(), Derived);
+  tfg::populateVirtualConceptDerived(*this, Concept,
+                                     BaseT.getTypePtr()->getAsCXXRecordDecl(),
+                                     Derived, UnderlyingType);
 
   // Finish class definition
   Derived->completeDefinition();
