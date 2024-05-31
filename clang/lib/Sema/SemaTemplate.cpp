@@ -11952,7 +11952,8 @@ public:
         const_cast<ASTContext &>(SemaRef.Context),
         TypeVisibilityAttr::Default));
 
-    // Do not forget about the destructor
+    // Do not forget about the destructor and constructor
+    static_cast<CRTP *>(this)->DefineConstructor();
     static_cast<CRTP *>(this)->DefineDestructor();
   }
 
@@ -12003,6 +12004,10 @@ private:
 class PopulateVirtualConceptBase : public PopulateVirtualConceptCRTP<PopulateVirtualConceptBase> {
 public:
   using PopulateVirtualConceptCRTP::PopulateVirtualConceptCRTP;
+
+  void DefineConstructor() {
+    // No need to do anything for the constructor of the virtual base
+  }
 
   void DefineDestructor() {
     SemaRef.DefineVirtualConceptDestructor(ToPopulate);
@@ -12071,13 +12076,25 @@ static constexpr inline auto populateVirtualConceptBase =
 namespace impl {
 class PopulateVirtualConceptDerived
     : public PopulateVirtualConceptCRTP<PopulateVirtualConceptDerived> {
-      CXXRecordDecl *Base;
-      QualType UnderlyingType;
+  CXXRecordDecl *Base;
+  QualType UnderlyingType;
 
 public:
   PopulateVirtualConceptDerived(Sema &SemaRef, ConceptDecl *Concept,
-                                CXXRecordDecl *Base, CXXRecordDecl *Derived, const Type* UnderlyingType)
-  : PopulateVirtualConceptCRTP(SemaRef, Concept, Derived), Base{Base}, UnderlyingType{QualType(UnderlyingType, 0)} {}
+                                CXXRecordDecl *Base, CXXRecordDecl *Derived,
+                                const Type *UnderlyingType)
+      : PopulateVirtualConceptCRTP(SemaRef, Concept, Derived), Base{Base},
+        UnderlyingType{QualType(UnderlyingType, 0)} {}
+
+  void DefineConstructor() {
+    // TODO: define data member here and single argument constructor for said
+    // data member
+  }
+
+  void DefineDestructor() {
+    // Do nothing, we are not generating special member functions
+    // and the default destructor is good enough
+  }
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
@@ -12087,22 +12104,20 @@ public:
     std::string CalleeName;
     {
       llvm::raw_string_ostream ss{CalleeName};
-      Callee->printPretty(ss, nullptr,
-      PrintingPolicy(SemaRef.getLangOpts()));
+      Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
     }
 
-    auto MethodName = impl::virtual_concept_prefix + std::move(CalleeName);
+    auto MethodName = impl::virtual_concept_prefix + CalleeName;
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
     // Create the method
     CXXMethodDecl *Method = CXXMethodDecl::Create(
         SemaRef.Context, ToPopulate, Callee->getExprLoc(),
-        DeclarationNameInfo((DeclarationName(&MethodII)),
-        Callee->getExprLoc()), MethodType,
+        DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
+        MethodType,
         /*Tinfo=*/nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(),
-        /*isInline=*/true, ConstexprSpecKind::Unspecified,
-        SourceLocation(),
+        /*isInline=*/true, ConstexprSpecKind::Unspecified, SourceLocation(),
         /*TrailingRequiresClause=*/nullptr);
 
     // Attach params and create call args
@@ -12111,10 +12126,9 @@ public:
     for (auto Arg :
          MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
       if (!isInstantiationDependent(Arg)) {
-	// Param
+        // Param
         auto *P =
-            ParmVarDecl::Create(SemaRef.Context, Method,
-            Method->getBeginLoc(),
+            ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
                                 Method->getBeginLoc(), nullptr, Arg,
                                 SemaRef.Context.getTrivialTypeSourceInfo(
                                     Arg, Method->getBeginLoc()),
@@ -12122,11 +12136,12 @@ public:
         Params.push_back(P);
         P->setOwningFunction(Method);
 
-	// Expr in Args
-	auto *DRE = new (SemaRef.Context) DeclRefExpr(
-						      SemaRef.Context, P, false, Arg, VK_LValue, SourceLocation());
-	Args.push_back(ImplicitCastExpr::Create(SemaRef.Context, Arg, CK_FunctionToPointerDecay,
-						DRE, nullptr, VK_LValue, FPOptionsOverride()));
+        // Expr in Args
+        auto *DRE = new (SemaRef.Context) DeclRefExpr(
+            SemaRef.Context, P, false, Arg, VK_LValue, SourceLocation());
+        Args.push_back(ImplicitCastExpr::Create(
+            SemaRef.Context, Arg, CK_FunctionToPointerDecay, DRE, nullptr,
+            VK_LValue, FPOptionsOverride()));
       } else {
         auto *ThisExpr = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
                                              Method->getThisType(), false);
@@ -12139,15 +12154,63 @@ public:
     // Set public
     Method->setAccess(AS_public);
 
+    // TODO: all this lookup must be tested and factored out into its own
+    // function
+    auto &FunctionII = SemaRef.Context.Idents.get(CalleeName);
+    LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
+                        Sema::LookupOrdinaryName);
+    if (!SemaRef.LookupName(
+            lookup, SemaRef.getScopeForContext(ToPopulate->getDeclContext())) ||
+        lookup.isAmbiguous() || lookup.empty()) {
+      // Lookup failed, the underlying type is not suitable for being a
+      // declcontext
+      return nullptr;
+    }
 
-    // TODO: lookup the actual function (using the Method just to have some IDE
-    // completion while writing this code)
-    ADLResult Functions;
-    auto& FunctionII = SemaRef.Context.Idents.get(CalleeName);
-    SemaRef.ArgumentDependentLookup(DeclarationName{&FunctionII},
-                                    SourceLocation(), Args, Functions);
+    {
+      // Filter out deductions
+      // See Sema::LookupLiteralOperator, this is heavily based on that
+      auto lookupFilter = lookup.makeFilter();
+      while (lookupFilter.hasNext()) {
+        Decl *D = lookupFilter.next();
+        // Skip invalid declarations
+        if (D->isInvalidDecl())
+          lookupFilter.erase();
 
-    FunctionDecl* FD = Method;
+        // Currently we do not support overloads to be template functions, just
+        // for simplicity
+        if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
+          if (FD->getNumParams() == Args.size()) {
+
+            unsigned idx = 0;
+            for (; idx < Args.size(); ++idx)
+              if (!SemaRef.Context.hasSameUnqualifiedType(
+                      FD->getParamDecl(idx)->getType(), Args[idx]->getType()))
+                break;
+
+            if (idx !=
+                Args.size()) // if idx != Args.size(), then types did not match
+              lookupFilter.erase();
+            else // Found the proper one leave this one and remove the others
+              while (lookupFilter.hasNext()) {
+                lookupFilter.next();
+                lookupFilter.erase();
+              }
+          } else
+            lookupFilter.erase();
+        } else
+          lookupFilter.erase();
+      }
+
+      lookupFilter.done();
+    }
+
+    if (!lookup.isSingleResult()) {
+      // failed to reduce lookup hits to a single function
+      return nullptr;
+    }
+
+    FunctionDecl *FD = lookup.getAsSingle<FunctionDecl>();
     const auto *FDType = FD->getType()->castAs<FunctionType>();
     auto FDQType = QualType(FDType, 0);
 
@@ -12157,32 +12220,28 @@ public:
 
     // More "boilerplate" in order to do a function call expression
     auto FPtr = SemaRef.Context.getPointerType(FDQType);
-    auto *ICE =
-        ImplicitCastExpr::Create(SemaRef.Context, FPtr, CK_FunctionToPointerDecay,
-                                 DRE, nullptr, VK_PRValue, FPOptionsOverride());
+    auto *ICE = ImplicitCastExpr::Create(
+        SemaRef.Context, FPtr, CK_FunctionToPointerDecay, DRE, nullptr,
+        VK_PRValue, FPOptionsOverride());
 
     // The actual call expression
     auto *CallExp = CallExpr::Create(
-        SemaRef.Context, ICE, Args,
-        FDType->getCallResultType(SemaRef.Context), VK_PRValue,
-				     SourceLocation(), FPOptionsOverride());
+        SemaRef.Context, ICE, Args, FDType->getCallResultType(SemaRef.Context),
+        VK_PRValue, SourceLocation(), FPOptionsOverride());
 
     // And the return statement
-    auto *RetStmt = ReturnStmt::Create(SemaRef.Context, SourceLocation(), CallExp, nullptr);
+    auto *RetStmt =
+        ReturnStmt::Create(SemaRef.Context, SourceLocation(), CallExp, nullptr);
 
     // Add all of this as the body of the newly created method
     auto *Body = CompoundStmt::Create(SemaRef.Context, {RetStmt}, {}, {}, {});
     Method->setBody(Body);
 
-    // Set method as an override of the method in the virtual concept's base class
+    // Set method as an override of the method in the virtual concept's base
+    // class
     SemaRef.AddOverriddenMethods(ToPopulate, Method);
     return Method;
   }
-
-  void DefineDestructor() {
-    // SemaRef.DefineVirtualConceptDestructor(ToPopulate);
-  }
-
 }; // PopulateVirtualConceptDerived
 } // namespace impl
 
