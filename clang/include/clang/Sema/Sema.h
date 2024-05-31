@@ -8863,13 +8863,19 @@ public:
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
 
-  CXXRecordDecl* TryInstantiateVirtualConceptBase(ConceptDecl *D);
-
-  QualType findOrInstantiateVirtualConceptBase(ConceptDecl *Concept);
+  CXXRecordDecl *TryInstantiateVirtualConceptBase(ConceptDecl *D);
 
   CXXRecordDecl *
-  TryInstantiateVirtualConceptDerived(QualType DeducedType,
-                                      ConceptDecl *TypeConstraintConcept);
+  TryInstantiateVirtualConceptDerived(ConceptDecl *TypeConstraintConcept,
+                                      const Type *UnderlyingType);
+
+  ParsedType getVirtualConceptBase(TemplateIdAnnotation *TypeConstraint) const;
+  QualType getVirtualConceptBase(ConceptDecl *TypeConstraintConcept) const;
+  QualType getVirtualConceptDerived(ConceptDecl *TypeConstraintCOncept,
+                                    const Type *UnderlyingType) const;
+  QualType findOrInstantiateVirtualConceptBase(ConceptDecl *Concept);
+  QualType findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
+                                                  const Type *UnderlyingType);
 
   //===--------------------------------------------------------------------===//
   // C++ Variadic Templates (C++0x [temp.variadic])
@@ -9406,9 +9412,6 @@ public:
   //===--------------------------------------------------------------------===//
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
-
-  QualType getVirtualConcept(ConceptDecl *TypeConstraintConcept) const;
-  ParsedType getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const;
 
   QualType DeduceVirtualConceptType(QualType DeducedType, ConceptDecl * TypeConstraintConcept);
 

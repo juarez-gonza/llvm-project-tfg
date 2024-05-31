@@ -5149,66 +5149,24 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 // C++ Virtual Concepts (TFG Gonzalo Juarez)
 //===--------------------------------------------------------------------===//
 
-QualType Sema::getVirtualConcept(ConceptDecl *Concept) const {
-  assert(Concept != nullptr && "Passed in Concept cannot be null");
-  DeclContext *ConceptDC = Concept->getDeclContext();
-  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
-  auto BaseIt = std::find_if(
-      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
-        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
-          return R->getName().str() == BaseName;
-        return false;
-  });
-  if (BaseIt == ConceptDC->decls_end())
-    return {};
-  auto *Base = cast<CXXRecordDecl>(*BaseIt);
-  return QualType(Base->getTypeForDecl(), 0);
-}
-
-ParsedType Sema::getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const {
-  TemplateName TN = TypeConstraint->Template.get();
-  ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
-  if (Concept == nullptr)
-    return {};
-  auto VCType = getVirtualConcept(Concept);
-  return VCType.isNull() ? ParsedType() : ParsedType::make(VCType);
-}
-
-QualType
-Sema::DeduceVirtualConceptType(QualType DeducedType,
-                               ConceptDecl *Concept) {
+QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
+                                        ConceptDecl *Concept) {
   // Find the underlying type of the deduced concept
-  auto *UnderlyingType =
+
+  // TODO: use some actual pattern matching or something instead of checking for
+  // a pointer depth of 1. See how auto or typename T do deduction on auto*
+  auto *UnqualifiedUnderlyingType =
       DeducedType.getTypePtr()->isPointerType()
           ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
       : DeducedType.getTypePtr();
 
-  // Find the virtual concept's derived class by its name (TODO: or try to instantiate it if not found)
-  DeclContext *ConceptDC = Concept->getDeclContext();
-  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
-  std::string TypeName =
-      BaseName + "_" + QualType(UnderlyingType, 0).getAsString();
+  auto VCDerivedType = findOrInstantiateVirtualConceptDerived(
+      Concept, UnqualifiedUnderlyingType);
 
-  // Find the deduced type if it exists
-  auto VCDeducedIt = std::find_if(
-      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&TypeName](Decl *D) {
-        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
-          return R->getName().str() == TypeName;
-        return false;
-      });
-
-  // If virtual concept's derived class was found, then use it. Otherwise, try to instantiate it
-  CXXRecordDecl *VCDerived = VCDeducedIt != ConceptDC->decls_end()
-                                 ? cast<CXXRecordDecl>(*VCDeducedIt)
-                                 : TryInstantiateVirtualConceptDerived(
-                                       DeducedType, Concept);
-  if (VCDerived == nullptr) {
-    // Virtual concept not found nor instantiated
-    return QualType();
-  }
-
-  // Return the adequate virtual concept's derived class
-  const Type *VCType = VCDerived->getTypeForDecl();
+  // Return the adequate virtual concept's derived class (add pointer
+  // if necessary, modify when the TODO for using actual pattern
+  // matching on pointers like auto is done)
+  const Type *VCType = VCDerivedType.getTypePtr();
   return DeducedType.getTypePtr()->isPointerType()
              ? Context.getPointerType(QualType(VCType, 0))
              : QualType(VCType, 0);

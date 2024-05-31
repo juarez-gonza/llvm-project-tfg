@@ -12022,7 +12022,7 @@ private:
     Method->setVirtualAsWritten(true);
     SemaRef.CheckPureMethod(Method, SourceRange());
 
-    // TODO: Call PushOnScopeChains?
+    // NOTE: Call PushOnScopeChains?
 
     return Method;
   }
@@ -12035,6 +12035,7 @@ static constexpr inline auto populateVirtualConcept =
              "Cannot populate a non-virtualizable concept");
       tfg::impl::PopulateVirtualConcept{SemaRef, Concept, Base}();
     };
+
 } // namespace tfg
 
 CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
@@ -12069,23 +12070,10 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   return Base;
 }
 
-QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
-  auto VCType = getVirtualConcept(Concept);
-  if (VCType.isNull()) {
-    // virtual concept's base not found, try to instantiate it or fail
-    if (auto *Base = TryInstantiateVirtualConceptBase(Concept); Base != nullptr)
-      VCType = QualType(Base->getTypeForDecl(), 0);
-    else
-      return {};
-  }
-  return VCType;
-}
-
-CXXRecordDecl *
-Sema::TryInstantiateVirtualConceptDerived(QualType DeducedType,
-                                          ConceptDecl *Concept) {
-  assert(!DeducedType.isNull() && Concept != nullptr &&
-         "DeducedType and Concept must be non null");
+CXXRecordDecl *Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
+                                                         const Type *UnderlyingType) {
+  assert(UnderlyingType != nullptr && Concept != nullptr &&
+         "UnderlyingType and Concept must be non null");
 
   // First, check if the virtual concept's base class exists.
   // If it doesn't, then try to instantiate it (if it fails to be instantiated
@@ -12098,6 +12086,79 @@ Sema::TryInstantiateVirtualConceptDerived(QualType DeducedType,
   // Instantiate virtual concept's derived class (TODO)
 
   return nullptr;
+}
+
+QualType Sema::getVirtualConceptBase(ConceptDecl *Concept) const {
+  assert(Concept != nullptr && "Passed in Concept cannot be null");
+  DeclContext *ConceptDC = Concept->getDeclContext();
+  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
+  auto BaseIt = std::find_if(
+      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&BaseName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == BaseName;
+        return false;
+  });
+  if (BaseIt == ConceptDC->decls_end())
+    return {};
+  auto *Base = cast<CXXRecordDecl>(*BaseIt);
+  return QualType(Base->getTypeForDecl(), 0);
+}
+
+ParsedType Sema::getVirtualConceptBase(TemplateIdAnnotation *TypeConstraint) const {
+  TemplateName TN = TypeConstraint->Template.get();
+  ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
+  if (Concept == nullptr)
+    return {};
+  auto VCType = getVirtualConceptBase(Concept);
+  return VCType.isNull() ? ParsedType() : ParsedType::make(VCType);
+}
+
+QualType Sema::getVirtualConceptDerived(ConceptDecl *Concept,
+                                        const Type *UnderlyingType) const {
+  // Get the name of the virtual concept's derived class for the underlying type
+  DeclContext *ConceptDC = Concept->getDeclContext();
+  std::string BaseName = "_tfg_virtual_" + Concept->getDeclName().getAsString();
+  std::string TypeName =
+      BaseName + "_" + QualType(UnderlyingType, 0).getAsString();
+  // Find the type in the context of the UnderlyingType (TODO: use the concept of the underlying type)
+  auto VCDeducedIt = std::find_if(
+      ConceptDC->decls_begin(), ConceptDC->decls_end(), [&TypeName](Decl *D) {
+        if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
+          return R->getName().str() == TypeName;
+        return false;
+  });
+  if (VCDeducedIt == ConceptDC->decls_end())
+    return {};
+  auto *VCDerived = cast<CXXRecordDecl>(*VCDeducedIt);
+  return QualType(VCDerived->getTypeForDecl(), 0);
+}
+
+QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
+  auto VCType = getVirtualConceptBase(Concept);
+  if (VCType.isNull()) {
+    // virtual concept's base not found, try to instantiate it or fail
+    if (auto *Base = TryInstantiateVirtualConceptBase(Concept); Base != nullptr)
+      VCType = QualType(Base->getTypeForDecl(), 0);
+    else
+      return {};
+  }
+  return VCType;
+}
+
+QualType Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
+                                                      const Type *UnderlyingType) {
+  auto VCType = getVirtualConceptDerived(Concept, UnderlyingType);
+  if (VCType.isNull()) {
+    // virtual concept's derived type for underlying type not found, try to
+    // instantiate it or fail
+    if (auto *Base =
+            TryInstantiateVirtualConceptDerived(Concept, UnderlyingType);
+        Base != nullptr)
+      VCType = QualType(Base->getTypeForDecl(), 0);
+    else
+      return {};
+  }
+  return VCType;
 }
 
 //===--------------------------------------------------------------------===//
