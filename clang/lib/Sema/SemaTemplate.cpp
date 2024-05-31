@@ -11929,46 +11929,49 @@ static constexpr inline auto isConceptVirtualizable = [](Sema &SemaRef,
 // implementation we will do it in two passes. The population function can
 // assume that the concept is virtualizable.
 namespace impl {
-class PopulateVirtualConceptBase
-    : public RecursiveASTVisitor<PopulateVirtualConceptBase> {
+
+template <typename CRTP>
+class PopulateVirtualConceptCRTP
+    : public RecursiveASTVisitor<PopulateVirtualConceptCRTP<CRTP>> {
+protected:
   Sema &SemaRef;
   ConceptDecl *Concept;
-  CXXRecordDecl *Base;
+  CXXRecordDecl *ToPopulate;
 
 public:
-  PopulateVirtualConceptBase(Sema &SemaRef, ConceptDecl *Concept,
-                         CXXRecordDecl *Base)
-      : SemaRef(SemaRef), Concept{Concept}, Base{Base} {}
+  PopulateVirtualConceptCRTP(Sema &SemaRef, ConceptDecl *Concept,
+                             CXXRecordDecl *ToPopulate)
+      : SemaRef(SemaRef), Concept{Concept}, ToPopulate{ToPopulate} {}
 
   void operator()() {
-    TraverseDecl(Concept);
+    this->TraverseDecl(Concept);
     // Mark the class as implicit - not written in code - (see
     // ASTContext::buildImplicitRecord)
-    Base->setImplicit();
-    Base->addAttr(TypeVisibilityAttr::CreateImplicit(
+    ToPopulate->setImplicit();
+    ToPopulate->addAttr(TypeVisibilityAttr::CreateImplicit(
         const_cast<ASTContext &>(SemaRef.Context),
         TypeVisibilityAttr::Default));
 
     // Do not forget about the destructor
-    SemaRef.DefineVirtualConceptDestructor(Base);
+    static_cast<CRTP *>(this)->DefineDestructor();
   }
 
   bool VisitRequiresExpr(const RequiresExpr *E) {
     ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
     for (auto *Req : Reqs)
-      AddVirtualMethodFromReq(Req);
+      AddMethodFromReq(Req);
     return true;
   }
 
 private:
-  CXXMethodDecl *AddVirtualMethodFromReq(concepts::Requirement *Req) {
+  CXXMethodDecl *AddMethodFromReq(concepts::Requirement *Req) {
     auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
     auto MethodType = ReqToMethodType(CompoundReq);
-    auto *Method = CreateMethod(CompoundReq, MethodType);
+    auto *Method = static_cast<CRTP*>(this)->CreateMethod(CompoundReq, MethodType);
 
     // Add this declaration to the Class, otherwise it does not show up in the
     // AST (lookup doesn't show it)
-    Base->addDecl(Method);
+    ToPopulate->addDecl(Method);
     return Method;
   }
 
@@ -11995,6 +11998,15 @@ private:
     return SemaRef.Context.getFunctionType(ReturnTypeInfo->getType(), ArgTypes,
                                            EPI);
   }
+};
+
+class PopulateVirtualConceptBase : public PopulateVirtualConceptCRTP<PopulateVirtualConceptBase> {
+public:
+  using PopulateVirtualConceptCRTP::PopulateVirtualConceptCRTP;
+
+  void DefineDestructor() {
+    SemaRef.DefineVirtualConceptDestructor(ToPopulate);
+  }
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
@@ -12012,7 +12024,7 @@ private:
 
     // Create the method
     CXXMethodDecl *Method = CXXMethodDecl::Create(
-        SemaRef.Context, Base, Callee->getExprLoc(),
+        SemaRef.Context, ToPopulate, Callee->getExprLoc(),
         DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
         MethodType,
         /*Tinfo=*/nullptr, SC_None,
@@ -12058,123 +12070,72 @@ static constexpr inline auto populateVirtualConceptBase =
 
 namespace impl {
 class PopulateVirtualConceptDerived
-    : public RecursiveASTVisitor<PopulateVirtualConceptDerived> {
-  Sema &SemaRef;
-  ConceptDecl *Concept;
+    : public PopulateVirtualConceptCRTP<PopulateVirtualConceptDerived> {
   CXXRecordDecl *Base;
-  CXXRecordDecl *Derived;
 
 public:
   PopulateVirtualConceptDerived(Sema &SemaRef, ConceptDecl *Concept,
                                 CXXRecordDecl *Base, CXXRecordDecl *Derived)
-      : SemaRef(SemaRef), Concept{Concept}, Base{Base}, Derived{Derived} {}
+      : PopulateVirtualConceptCRTP(SemaRef, Concept, Derived), Base{Base} {}
 
-  void operator()() {
-    // TraverseDecl(Concept);
-    // // Mark the class as implicit - not written in code - (see
-    // // ASTContext::buildImplicitRecord)
-    // Base->setImplicit();
-    // Base->addAttr(TypeVisibilityAttr::CreateImplicit(
-    //     const_cast<ASTContext &>(SemaRef.Context),
-    //     TypeVisibilityAttr::Default));
+  CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
+                              QualType MethodType) {
+    // // Get the compound requirement callee name, this will be used to
+    // // create the virtual method
+    // auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
+    // std::string MethodName;
+    // {
+    //   std::string CalleeName;
+    //   llvm::raw_string_ostream ss{CalleeName};
+    //   Callee->printPretty(ss, nullptr,
+    //   PrintingPolicy(SemaRef.getLangOpts())); MethodName =
+    //   impl::virtual_concept_prefix + std::move(CalleeName);
+    // }
+    // auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
-    // // Do not forget about the destructor
-    // SemaRef.DefineVirtualConceptDestructor(Base);
+    // // Create the method
+    // CXXMethodDecl *Method = CXXMethodDecl::Create(
+    //     SemaRef.Context, Base, Callee->getExprLoc(),
+    //     DeclarationNameInfo((DeclarationName(&MethodII)),
+    //     Callee->getExprLoc()), MethodType,
+    //     /*Tinfo=*/nullptr, SC_None,
+    //     SemaRef.getCurFPFeatures().isFPConstrained(),
+    //     /*isInline=*/true, ConstexprSpecKind::Unspecified,
+    //     SourceLocation(),
+    //     /*TrailingRequiresClause=*/nullptr);
+
+    // // Attach params
+    // SmallVector<ParmVarDecl *> Params;
+    // for (auto Arg :
+    //      MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
+    //   if (!isInstantiationDependent(Arg)) {
+    //     auto *P =
+    //         ParmVarDecl::Create(SemaRef.Context, Method,
+    //         Method->getBeginLoc(),
+    //                             Method->getBeginLoc(), nullptr, Arg,
+    //                             SemaRef.Context.getTrivialTypeSourceInfo(
+    //                                 Arg, Method->getBeginLoc()),
+    //                             SC_None, nullptr);
+    //     Params.push_back(P);
+    //     P->setOwningFunction(Method);
+    //   }
+    // Method->setParams(Params);
+
+    // // Set public, virtual and check that I haven't screwed up while doing so
+    // Method->setAccess(AS_public); Method->setIsPureVirtual();
+    // Method->setVirtualAsWritten(true);
+    // SemaRef.CheckPureMethod(Method, SourceRange());
+
+    // // NOTE: Call PushOnScopeChains?
+
+    // return Method;
+    return nullptr;
   }
 
-//   bool VisitRequiresExpr(const RequiresExpr *E) {
-//     ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
-//     for (auto *Req : Reqs)
-//       AddVirtualMethodFromReq(Req);
-//     return true;
-//   }
+  void DefineDestructor() {
+    SemaRef.DefineVirtualConceptDestructor(ToPopulate);
+  }
 
-// private:
-//   CXXMethodDecl *AddVirtualMethodFromReq(concepts::Requirement *Req) {
-//     auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
-//     auto MethodType = ReqToMethodType(CompoundReq);
-//     auto *Method = CreateMethod(CompoundReq, MethodType);
-
-//     // Add this declaration to the Class, otherwise it does not show up in the
-//     // AST (lookup doesn't show it)
-//     Base->addDecl(Method);
-//     return Method;
-//   }
-
-//   QualType ReqToMethodType(concepts::ExprRequirement *CompoundReq) {
-//     auto *Call = cast<CallExpr>(CompoundReq->getExpr());
-
-//     auto Args = SmallVector<Expr *>{Call->getNumArgs() - 1};
-//     for (auto *A : ArrayRef{Call->getArgs(), Call->getNumArgs()})
-//       if (!hasInstantiationDependentType(
-//               A)) // the instantiation dependent arg is `this` pointer
-//         Args.push_back(A);
-
-//     auto ArgTypes = SmallVector<QualType>{Args.size()};
-//     for (auto *Arg : Args)
-//       ArgTypes.push_back(Arg->getType());
-
-//     // Get return type constraint
-//     const auto *ReturnTypeInfo =
-//         CompoundReq->getReturnTypeRequirement().getReturnTypeSourceInfo();
-
-//     // Use noexcept if specified and create method prototype
-//     auto EPI = FunctionProtoType::ExtProtoInfo{}.withExceptionSpec(
-//         {CompoundReq->hasNoexceptRequirement() ? EST_BasicNoexcept : EST_None});
-//     return SemaRef.Context.getFunctionType(ReturnTypeInfo->getType(), ArgTypes,
-//                                            EPI);
-//   }
-
-//   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
-//                               QualType MethodType) {
-//     // Get the compound requirement callee name, this will be used to create the
-//     // virtual method
-//     auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
-//     std::string MethodName;
-//     {
-//       std::string CalleeName;
-//       llvm::raw_string_ostream ss{CalleeName};
-//       Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
-//       MethodName = impl::virtual_concept_prefix + std::move(CalleeName);
-//     }
-//     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
-
-//     // Create the method
-//     CXXMethodDecl *Method = CXXMethodDecl::Create(
-//         SemaRef.Context, Base, Callee->getExprLoc(),
-//         DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
-//         MethodType,
-//         /*Tinfo=*/nullptr, SC_None,
-//         SemaRef.getCurFPFeatures().isFPConstrained(),
-//         /*isInline=*/true, ConstexprSpecKind::Unspecified, SourceLocation(),
-//         /*TrailingRequiresClause=*/nullptr);
-
-//     // Attach params
-//     SmallVector<ParmVarDecl *> Params;
-//     for (auto Arg :
-//          MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
-//       if (!isInstantiationDependent(Arg)) {
-//         auto *P =
-//             ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
-//                                 Method->getBeginLoc(), nullptr, Arg,
-//                                 SemaRef.Context.getTrivialTypeSourceInfo(
-//                                     Arg, Method->getBeginLoc()),
-//                                 SC_None, nullptr);
-//         Params.push_back(P);
-//         P->setOwningFunction(Method);
-//       }
-//     Method->setParams(Params);
-
-//     // Set public, virtual and check that I haven't screwed up while doing so
-//     Method->setAccess(AS_public);
-//     Method->setIsPureVirtual();
-//     Method->setVirtualAsWritten(true);
-//     SemaRef.CheckPureMethod(Method, SourceRange());
-
-//     // NOTE: Call PushOnScopeChains?
-
-//     return Method;
-//   }
 }; // PopulateVirtualConceptDerived
 } // namespace impl
 
@@ -12221,6 +12182,7 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                           const Type *UnderlyingType) {
   assert(UnderlyingType != nullptr && Concept != nullptr &&
          "UnderlyingType and Concept must be non null");
+  return nullptr;
 
   // First, check if the virtual concept's base class exists.
   // If it doesn't, then try to instantiate it (if it fails to be instantiated
@@ -12248,7 +12210,7 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
       Context, DerivedScope->getEntity(), TDecl->getBeginLoc(),
       &Context.Idents.get(
           tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType)),
-							     VCBaseSrcInfo);
+      VCBaseSrcInfo);
 
   // Populate with methods
   tfg::populateVirtualConceptDerived(
@@ -12258,7 +12220,7 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   Derived->completeDefinition();
   CheckCompletedCXXClass(DerivedScope, Derived);
 
-  return nullptr;
+  return Derived;
 }
 
 QualType Sema::getVirtualConceptBase(ConceptDecl *Concept) const {
@@ -12270,14 +12232,15 @@ QualType Sema::getVirtualConceptBase(ConceptDecl *Concept) const {
         if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
           return R->getName().str() == BaseName;
         return false;
-  });
+      });
   if (BaseIt == ConceptDC->decls_end())
     return {};
   auto *Base = cast<CXXRecordDecl>(*BaseIt);
   return QualType(Base->getTypeForDecl(), 0);
 }
 
-ParsedType Sema::getVirtualConceptBase(TemplateIdAnnotation *TypeConstraint) const {
+ParsedType
+Sema::getVirtualConceptBase(TemplateIdAnnotation *TypeConstraint) const {
   TemplateName TN = TypeConstraint->Template.get();
   ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
   if (Concept == nullptr)
@@ -12324,8 +12287,9 @@ QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
   return VCType;
 }
 
-QualType Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
-                                                      const Type *UnderlyingType) {
+QualType
+Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
+                                             const Type *UnderlyingType) {
   auto VCType = getVirtualConceptDerived(Concept, UnderlyingType);
   if (VCType.isNull()) {
     // virtual concept's derived type for underlying type not found, try to

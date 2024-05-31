@@ -1,8 +1,8 @@
 #+AUTHOR: Gonzalo Juarez
 #+TITLE: TODO LIST
 
-- Parsear template arguments a virtual concepts como si fueran el tipo
-  base.
+
+* DONE Parsear template arguments a virtual concepts como si fueran el tipo base.
   Ver esta nota:
   #+BEGIN_SRC C++
     // NOTE:
@@ -29,7 +29,8 @@
     // more uniformly).
   #+END_SRC
 
-- Generar tipo derivado automáticamente.
+* TODO Generar tipo derivado automáticamente.
 
-- Implementar función libre para puntero o referencia a clase base
-  generada por virtual concept.
+* TODO Implementar función libre para puntero o referencia a clase base generada por virtual concept.
+
+* TODO Dar soporte a funciones miembro
