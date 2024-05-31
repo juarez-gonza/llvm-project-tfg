@@ -7457,19 +7457,15 @@ void Parser::ParseParameterDeclarationClause(
                                /*LateAttrs=*/nullptr, AllowImplicitTypename);
 
     // tfg juarez init
-    if (DS.getTypeSpecType() == TST_virtual) {
-      // TODO: this is the same code that show up in SemaType
-      // GetDeclSpecTypeForDeclarator for template argument with
-      // virtual concept specifier. Factor this out into a common
-      // function
-      auto* TempId = DS.getRepAsTemplateId();
-      const char *PrevSpec = nullptr;
-      unsigned int DiagID = 0;
-      ParsedType VCTypeRep =
-        Actions.getVirtualConcept(TempId);
-      DS.ClearTypeSpecType();
-      DS.SetTypeSpecType(TST_typename, DS.getBeginLoc(), PrevSpec, DiagID,
-                         VCTypeRep, Actions.getPrintingPolicy());
+    // If it is a declaration for a virtual concept, accomodate the current
+    // declspec to the virtual concept base
+    if (DS.getTypeSpecType() == TST_virtual &&
+        Actions.setVirtualConceptDeclSpec(DS).isInvalid()) {
+      // Failed to find virtual concept base, consume and try to keep
+      // going with the rest of the parameters.
+      Diag(Tok, diag::err_virtual_concept_not_found);
+      ConsumeToken();
+      continue;
     }
     // tfg juarez end
 

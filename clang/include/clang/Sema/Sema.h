@@ -8818,13 +8818,20 @@ public:
   ActOnCompoundRequirement(
       Expr *E, SourceLocation NoexceptLoc, CXXScopeSpec &SS,
 			   TemplateIdAnnotation *TypeConstraint, unsigned Depth);
-  // TFG Juarez Start
+
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
+
   concepts::Requirement *ActOnCompoundRequirement(Expr *E,
                                                   TypeResult ReturnTypeResult,
                                                   SourceLocation NoexceptLoc,
                                                   ParmVarDecl *RequiresParm,
                                                   unsigned Depth);
-  // TFG Juarez End
+
+  //===--------------------------------------------------------------------===//
+  // C++ Virtual Concepts (TFG Gonzalo Juarez)
+  //===--------------------------------------------------------------------===//
 
   concepts::Requirement *ActOnNestedRequirement(Expr *Constraint);
   concepts::ExprRequirement *
@@ -9389,14 +9396,21 @@ public:
                  bool DependentDeduction = false,
                  bool IgnoreConstraints = false,
                  TemplateSpecCandidateSet *FailedTSC = nullptr);
+
   //===--------------------------------------------------------------------===//
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
+
   ParsedType getVirtualConcept(TemplateIdAnnotation *TypeConstraint) const;
+
   QualType DeduceVirtualConceptType(QualType DeducedType, ConceptDecl * TypeConstraintConcept) const;
+
+  TypeResult setVirtualConceptDeclSpec(DeclSpec& DS);
+
   //===--------------------------------------------------------------------===//
   // C++ Virtual Concepts (TFG Gonzalo Juarez)
   //===--------------------------------------------------------------------===//
+
   void DiagnoseAutoDeductionFailure(VarDecl *VDecl, Expr *Init);
   bool DeduceReturnType(FunctionDecl *FD, SourceLocation Loc,
                         bool Diagnose = true);

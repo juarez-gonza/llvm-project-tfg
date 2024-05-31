@@ -5210,6 +5210,28 @@ Sema::DeduceVirtualConceptType(QualType DeducedType,
              : QualType(VCType, 0);
 }
 
+TypeResult Sema::setVirtualConceptDeclSpec(DeclSpec &DS) {
+  assert(DS.getTypeSpecType() == TST_virtual &&
+         "Must be called with TST_virtual DeclSpec");
+
+  auto *TempId = DS.getRepAsTemplateId();
+  ParsedType VCTypeRep = getVirtualConcept(TempId);
+  if (!VCTypeRep) // virtual concept base not found
+    // TODO: try to instantiate here, fail if instantiation fails
+    // for the moment we just fail here
+    return true;
+
+  { // Reset DeclSpec to that of a type (since the virtual concept base is just
+    // that)
+    const char *PrevSpec = nullptr;
+    unsigned int DiagID = 0;
+    DS.ClearTypeSpecType();
+    DS.SetTypeSpecType(TST_typename, DS.getBeginLoc(), PrevSpec, DiagID,
+                       VCTypeRep, getPrintingPolicy());
+  }
+  return VCTypeRep;
+}
+
 //===--------------------------------------------------------------------===//
 // C++ Virtual Concepts (TFG Gonzalo Juarez)
 //===--------------------------------------------------------------------===//

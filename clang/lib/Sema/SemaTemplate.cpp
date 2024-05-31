@@ -11922,7 +11922,18 @@ public:
                          CXXRecordDecl *Base)
       : SemaRef(SemaRef), Concept{Concept}, Base{Base} {}
 
-  void operator()() { TraverseDecl(Concept); }
+  void operator()() {
+    TraverseDecl(Concept);
+    // Mark the class as implicit - not written in code - (see
+    // ASTContext::buildImplicitRecord)
+    Base->setImplicit();
+    Base->addAttr(TypeVisibilityAttr::CreateImplicit(
+        const_cast<ASTContext &>(SemaRef.Context),
+        TypeVisibilityAttr::Default));
+
+    // Do not forget about the destructor
+    SemaRef.DefineVirtualConceptDestructor(Base);
+  }
 
   bool VisitRequiresExpr(const RequiresExpr *E) {
     ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
@@ -12034,41 +12045,28 @@ void Sema::TryInstantiateVirtualConcept(ConceptDecl *D) {
   if (!tfg::isConceptVirtualizable(*this, D))
     return;
 
-  // The generated class "leaks" to the outer scope of the concept context
-  // sort of like enum members do. Get the parent scope of the concept definition
-  Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
-  auto BaseName = "_tfg_virtual_" + D->getDeclName().getAsString(); // llvm::formatv("tfg_virtual_{0}", D->getName());
+
+  auto BaseName = "_tfg_virtual_" + D->getDeclName().getAsString();
 
   // NOTE: It would be nice use ASTContext::buildImplicitRecord() but that
   // creats a record at the TU DeclContext, and this feature needs the record
   // declaration at the same context level as the c++20 concept. However, do
   // read that method and CXXRecordDecl::CreateLambda() because the following
   // code stems from thoughtful copy and pasting
+
+  // The generated class "leaks" to the outer scope of the concept context
+  // sort of like enum members do. Get the parent scope of the concept definition
+  Scope *BaseParentScope = getScopeForContext(D->getDeclContext()) ;
   auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
       Context, BaseParentScope->getEntity(), D->getBeginLoc(),
-      &Context.Idents.get(BaseName));
+						       &Context.Idents.get(BaseName));
 
-  // Create the necessary methods
+  // Populate with methods
   tfg::populateVirtualConcept(*this, D, Base);
 
-  // assert(Base->getDestructor() != nullptr && "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-  // Base->getDestructor()->setIsPureVirtual(true);
-
-  // Mark the class as implicit - not written in code - (see
-  // ASTContext::buildImplicitRecord)
-  Base->setImplicit();
-  Base->addAttr(TypeVisibilityAttr::CreateImplicit(
-						   const_cast<ASTContext &>(Context), TypeVisibilityAttr::Default));
-
-  // Do not forget about the destructor
-  DefineVirtualConceptDestructor(Base);
-
-  // End class definition
+  // Finish base class definition
   Base->completeDefinition();
   CheckCompletedCXXClass(BaseParentScope, Base);
-
-  // TODO: Call PushOnScopeChains?
-
 }
 
 //===--------------------------------------------------------------------===//

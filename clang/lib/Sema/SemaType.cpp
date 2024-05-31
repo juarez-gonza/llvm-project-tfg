@@ -3714,28 +3714,19 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
           D.getDeclSpec().getParsedSpecifiers() == DeclSpec::PQ_TypeSpecifier)
         break;
 
-      // TFG Gonzalo Juarez
-      // Virtual Concept allowed as template argument, it is just the base class
-      // instantiated by it. Find base class defined by virtual concept
-      if (Auto->getKeyword() == AutoTypeKeyword::Virtual) {
-	// TODO: this is the same code that show up in ParseDecl
-	// ParseParameterDeclarationClause for function parameter with
-	// virtual concept specifier. Factor this out into a common function
-        auto &DS = D.getMutableDeclSpec();
-        ParsedType VCTypeRep =
-            SemaRef.getVirtualConcept(DS.getRepAsTemplateId());
-        // Set type to be returned (T) and update its corresponding DeclSpec
-        // representation
-        T = VCTypeRep.get();
-        DS.ClearTypeSpecType();
-        {
-          const char *PrevSpec = nullptr;
-          unsigned int DiagID = 0;
-          DS.SetTypeSpecType(TST_typename, DS.getBeginLoc(), PrevSpec, DiagID,
-                             VCTypeRep, SemaRef.getPrintingPolicy());
+      // tfg juarez init
+      // Virtual Concept is allowed as template argument, it is just
+      // the base class instantiated by it. Accomodate the current declspec to
+      // the virtual concept base
+      if (Auto->getKeyword() == AutoTypeKeyword::Virtual)
+        if (auto VCType =
+                SemaRef.setVirtualConceptDeclSpec(D.getMutableDeclSpec());
+            !VCType.isInvalid()) {
+          // Found adequate virtual concept base
+          T = VCType.get().get();
+          break;
         }
-        break;
-      }
+      // tfg juarez end
 
       [[fallthrough]];
     case DeclaratorContext::TemplateTypeArg:
