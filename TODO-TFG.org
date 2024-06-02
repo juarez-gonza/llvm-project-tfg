@@ -31,6 +31,15 @@
 
 * TODO Generar tipo derivado automáticamente.
 
+* TODO DeclSpec en RHS o deducción en RHS donde el LHS sea el tipo base debe ser aceptada correctamente
+
+  #+BEGIN_SRC C++
+    SomeConcept virtual *foo(); // return type must deduce to virtual concept base type
+    SomeCOncept virtual *x = foo(); // x's type must deduce to virtual concept base type
+    auto *y = x; // y's type must deduce to virtual concept base type
+  #+END_SRC
+
+
 * TODO Implementar función libre para puntero o referencia a clase base generada por virtual concept.
 
 * TODO Dar soporte a funciones miembro
