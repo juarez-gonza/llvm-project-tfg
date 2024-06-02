@@ -41,12 +41,14 @@
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <iterator>
 #include <optional>
 using namespace clang;
@@ -12100,11 +12102,12 @@ public:
                               QualType MethodType) {
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
-    auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
+    auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
+    auto ReqCallExpArgs = ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
     std::string CalleeName;
     {
       llvm::raw_string_ostream ss{CalleeName};
-      Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
+      ReqCallExp->getCallee()->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
     }
 
     auto MethodName = impl::virtual_concept_prefix + CalleeName;
@@ -12112,8 +12115,8 @@ public:
 
     // Create the method
     CXXMethodDecl *Method = CXXMethodDecl::Create(
-        SemaRef.Context, ToPopulate, Callee->getExprLoc(),
-        DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
+        SemaRef.Context, ToPopulate, ReqCallExp->getExprLoc(),
+        DeclarationNameInfo((DeclarationName(&MethodII)), ReqCallExp->getExprLoc()),
         MethodType,
         /*Tinfo=*/nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(),
@@ -12123,25 +12126,27 @@ public:
     // Attach params and create call args
     SmallVector<ParmVarDecl *> Params;
     SmallVector<Expr *> Args;
-    for (auto Arg :
-         MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
-      if (!isInstantiationDependent(Arg)) {
+    for (auto* Arg :
+         ReqCallExpArgs)
+      if (!hasInstantiationDependentType(
+              Arg)) { // the instantiation dependent arg is `this` pointer
         // Param
         auto *P =
             ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
-                                Method->getBeginLoc(), nullptr, Arg,
+                                Method->getBeginLoc(), nullptr, Arg->getType(),
                                 SemaRef.Context.getTrivialTypeSourceInfo(
-                                    Arg, Method->getBeginLoc()),
+                                    Arg->getType(), Method->getBeginLoc()),
                                 SC_None, nullptr);
         Params.push_back(P);
         P->setOwningFunction(Method);
 
         // Expr in Args
-        auto *DRE = new (SemaRef.Context) DeclRefExpr(
-            SemaRef.Context, P, false, Arg, VK_LValue, SourceLocation());
+        auto *DRE = new (SemaRef.Context)
+            DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
+                        SourceLocation());
         Args.push_back(ImplicitCastExpr::Create(
-            SemaRef.Context, Arg, CK_FunctionToPointerDecay, DRE, nullptr,
-            VK_LValue, FPOptionsOverride()));
+            SemaRef.Context, Arg->getType(), CK_FunctionToPointerDecay, DRE,
+            nullptr, VK_LValue, FPOptionsOverride()));
       } else {
         auto *ThisExpr = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
                                              Method->getThisType(), false);
@@ -12156,57 +12161,71 @@ public:
 
     // TODO: all this lookup must be tested and factored out into its own
     // function
+
     auto &FunctionII = SemaRef.Context.Idents.get(CalleeName);
     LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
                         Sema::LookupOrdinaryName);
+
     if (!SemaRef.LookupName(
             lookup, SemaRef.getScopeForContext(ToPopulate->getDeclContext())) ||
         lookup.isAmbiguous() || lookup.empty()) {
+      // TODO: handle this failure
       // Lookup failed, the underlying type is not suitable for being a
       // declcontext
       return nullptr;
     }
 
-    {
+    { // start of lookupFilter scope
       // Filter out deductions
       // See Sema::LookupLiteralOperator, this is heavily based on that
       auto lookupFilter = lookup.makeFilter();
       while (lookupFilter.hasNext()) {
-        Decl *D = lookupFilter.next();
         // Skip invalid declarations
-        if (D->isInvalidDecl())
-          lookupFilter.erase();
+        if (auto *D = lookupFilter.next(); !D->isInvalidDecl())
+          // Currently we do not support overloads to be template functions,
+          // just for simplicity
+          if (auto *FD = dyn_cast<FunctionDecl>(D);
+              FD != nullptr && FD->getNumParams() == ReqCallExpArgs.size()) {
 
-        // Currently we do not support overloads to be template functions, just
-        // for simplicity
-        if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-          if (FD->getNumParams() == Args.size()) {
+	    // Check if all parameter types match
+            auto comparissonPairs = llvm::zip(FD->parameters(), ReqCallExpArgs);
+            auto mustKeep = std::all_of(
+                comparissonPairs.begin(), comparissonPairs.end(),
+                [this](decltype(*comparissonPairs.begin()) PandArg) {
+                  auto [P, Arg] = PandArg;
+                  auto ToCompare = hasInstantiationDependentType(Arg)
+                                       ? UnderlyingType
+                                       : Arg->getType();
+                  // If has instantiation dependent type, then we are looking at
+                  // the underlying type against the current parameter in FD.
+                  // Otherwise, regular parameter comparisson
+                  return SemaRef.Context.hasSameUnqualifiedType(P->getType(),
+                                                                ToCompare);
+                });
 
-            unsigned idx = 0;
-            for (; idx < Args.size(); ++idx)
-              if (!SemaRef.Context.hasSameUnqualifiedType(
-                      FD->getParamDecl(idx)->getType(), Args[idx]->getType()))
-                break;
-
-            if (idx !=
-                Args.size()) // if idx != Args.size(), then types did not match
-              lookupFilter.erase();
-            else // Found the proper one leave this one and remove the others
+            if (mustKeep) {
+              // If this is a keeper, delete every other overload and leave the
+              // while loop
               while (lookupFilter.hasNext()) {
                 lookupFilter.next();
                 lookupFilter.erase();
               }
-          } else
-            lookupFilter.erase();
-        } else
-          lookupFilter.erase();
-      }
+              goto while_out;
+            }
+          }
 
+	// If it is not a keeper, erase it from the lookup result
+        lookupFilter.erase();
+      }
+    while_out:
       lookupFilter.done();
-    }
+    } // end of lookupFilter scope
 
     if (!lookup.isSingleResult()) {
+      // TODO: handle this failure
       // failed to reduce lookup hits to a single function
+      fprintf(stderr, "\n############ RESULTS %ld ###############\n",
+              std::distance(lookup.begin(), lookup.end()));
       return nullptr;
     }
 
@@ -12288,7 +12307,6 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                           const Type *UnderlyingType) {
   assert(UnderlyingType != nullptr && Concept != nullptr &&
          "UnderlyingType and Concept must be non null");
-  return nullptr;
 
   // First, check if the virtual concept's base class exists.
   // If it doesn't, then try to instantiate it (if it fails to be instantiated
@@ -12298,22 +12316,29 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   if (BaseT.isNull()) // Base not found nor instantiated, fail
     return nullptr;
 
+  // TODO: check if this work for non built-in types
+
   // The virtual concept's derived type built from our UnderlyingType
   // must get defined on the UnderlyingType's DeclContext (if it's
   // user defined - tag -, otherwise it gets defined in the TU's
   // context)
-  auto *TDecl = UnderlyingType->getAsTagDecl();
-  DeclContext *DeclCtx = TDecl != nullptr ? TDecl->getDeclContext()
-                                          : Context.getTranslationUnitDecl();
-  Scope *DerivedScope = getScopeForContext(DeclCtx);
+  auto *DeclCtx = UnderlyingType->isBuiltinType()
+                      ? Context.getTranslationUnitDecl()
+                      : UnderlyingType->getAsTagDecl()->getDeclContext();
+  auto *DerivedScope = getScopeForContext(DeclCtx);
 
   // Create BaseSpecifier for virtual concept's base
-  TypeSourceInfo *VCBaseSrcInfo;
-  GetTypeFromParser(ParsedType::make(BaseT), &VCBaseSrcInfo);
+
+  TypeSourceInfo *VCBaseSrcInfo = Context.CreateTypeSourceInfo(BaseT);
+  // BaseT.getTypePtr()->getAsCXXRecordDecl()->getLambdaTypeInfo()
+  // GetTypeFromParser(ParsedType::make(BaseT), &VCBaseSrcInfo);
+  // assert(VCBaseSrcInfo != nullptr &&
+  //        "\n####################### VCBaseSrcInfo should not be null "
+  //        "######################\n");
 
   // Create Type
   auto *Derived = CXXRecordDecl::CreateVirtualConceptDerived(
-      Context, DerivedScope->getEntity(), TDecl->getBeginLoc(),
+      Context, DerivedScope->getEntity(), SourceLocation(),
       &Context.Idents.get(
           tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType)),
       VCBaseSrcInfo);
@@ -12401,10 +12426,10 @@ Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   if (VCType.isNull()) {
     // virtual concept's derived type for underlying type not found, try to
     // instantiate it or fail
-    if (auto *Base =
+    if (auto *Derived =
             TryInstantiateVirtualConceptDerived(Concept, UnderlyingType);
-        Base != nullptr)
-      VCType = QualType(Base->getTypeForDecl(), 0);
+        Derived != nullptr)
+      VCType = QualType(Derived->getTypeForDecl(), 0);
     else
       return {};
   }
