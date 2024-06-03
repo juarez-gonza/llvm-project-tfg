@@ -1009,10 +1009,8 @@ void Sema::ForceDeclarationOfImplicitMembers(CXXRecordDecl *Class) {
     return;
 
   // If the default constructor has not yet been declared, do so now.
-  if (Class->needsImplicitDefaultConstructor()) {
-    fprintf(stderr, "\n################## %s ##################\n", __func__);
+  if (Class->needsImplicitDefaultConstructor())
     DeclareImplicitDefaultConstructor(Class);
-  }
 
   // If the copy constructor has not yet been declared, do so now.
   if (Class->needsImplicitCopyConstructor())
@@ -1068,7 +1066,6 @@ static void DeclareImplicitMemberFunctionsWithName(Sema &S,
   case DeclarationName::CXXConstructorName:
     if (const CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(DC))
       if (Record->getDefinition() && CanDeclareSpecialMemberFunction(Record)) {
-	fprintf(stderr, "\n################## %s ##################\n", __func__);
         CXXRecordDecl *Class = const_cast<CXXRecordDecl *>(Record);
         if (Record->needsImplicitDefaultConstructor())
           S.DeclareImplicitDefaultConstructor(Class);
@@ -3409,7 +3406,6 @@ Sema::SpecialMemberOverloadResult Sema::LookupSpecialMember(CXXRecordDecl *RD,
     Name = Context.DeclarationNames.getCXXConstructorName(CanTy);
     NumArgs = 0;
     if (RD->needsImplicitDefaultConstructor()) {
-      fprintf(stderr, "\n################## %s ##################\n", __func__);
       runWithSufficientStackSpace(RD->getLocation(), [&] {
         DeclareImplicitDefaultConstructor(RD);
       });
@@ -3596,10 +3592,8 @@ DeclContext::lookup_result Sema::LookupConstructors(CXXRecordDecl *Class) {
   // If the implicit constructors have not yet been declared, do so now.
   if (CanDeclareSpecialMemberFunction(Class)) {
     runWithSufficientStackSpace(Class->getLocation(), [&] {
-      if (Class->needsImplicitDefaultConstructor()) {
-	fprintf(stderr, "\n################## %s ##################\n", __func__);
+      if (Class->needsImplicitDefaultConstructor())
         DeclareImplicitDefaultConstructor(Class);
-      }
       if (Class->needsImplicitCopyConstructor())
         DeclareImplicitCopyConstructor(Class);
       if (getLangOpts().CPlusPlus11 && Class->needsImplicitMoveConstructor())

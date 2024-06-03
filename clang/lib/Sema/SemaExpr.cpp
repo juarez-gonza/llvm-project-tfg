@@ -18956,7 +18956,6 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
             if (Constructor->isTrivial() &&
                 !Constructor->hasAttr<DLLExportAttr>())
               return;
-	    fprintf(stderr, "\n################### %s ##################\n", __func__);
             DefineImplicitDefaultConstructor(Loc, Constructor);
           } else if (Constructor->isCopyConstructor()) {
             DefineImplicitCopyConstructor(Loc, Constructor);

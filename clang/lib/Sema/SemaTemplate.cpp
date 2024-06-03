@@ -12093,15 +12093,7 @@ public:
         UnderlyingType{QualType(UnderlyingType, 0)} {}
 
   void DefineConstructor() {
-    // SemaRef.DeclareImplicitDefaultConstructor(ToPopulate);
-    // SemaRef.DeclareImplicitCopyConstructor(ToPopulate);
-    // SemaRef.DeclareImplicitMoveConstructor(ToPopulate);
-    // SemaRef.DeclareImplicitCopyAssignment(ToPopulate);
-    // SemaRef.DeclareImplicitMoveAssignment(ToPopulate);
-
     auto ClassLoc = ToPopulate->getLocation();
-
-
 
     IdentifierInfo &DataFieldII =
         SemaRef.Context.Idents.get("_tfg_virtual_data");
@@ -12155,12 +12147,7 @@ public:
     Ctor->setWillHaveBody(false);
     SemaRef.ActOnFinishInlineFunctionDef(Ctor);
 
-    fprintf(stderr,
-            "\n############### CtorInitializers: %d %s ################\n",
-            Ctor->getNumCtorInitializers(), __func__);
-
     // Make the ctor visible to the class declcontext
-
     // TODO: check if this works for move-only types, perhaps we should call
     // ShouldDeleteSpecialMemberDeclaration and see if any special operation
     // should be removed according to the type of the UnderlyingType type.
@@ -12177,7 +12164,6 @@ public:
   void DefineDestructor() {
 
     SemaRef.AddImplicitlyDeclaredMembersToClass(ToPopulate);
-    // auto *Dtor = SemaRef.DeclareImplicitDestructor(ToPopulate);
     SemaRef.AddOverriddenMethods(ToPopulate, ToPopulate->getDestructor());
   }
 
@@ -12312,8 +12298,6 @@ public:
     if (!lookup.isSingleResult()) {
       // TODO: handle this failure
       // failed to reduce lookup hits to a single function
-      fprintf(stderr, "\n############ RESULTS %ld ###############\n",
-              std::distance(lookup.begin(), lookup.end()));
       return nullptr;
     }
 

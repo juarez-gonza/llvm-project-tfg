@@ -2753,18 +2753,6 @@ CXXConstructorDecl *CXXConstructorDecl::Create(
   unsigned Extra =
       additionalSizeToAlloc<InheritedConstructor, ExplicitSpecifier>(
 								     Inherited ? 1 : 0, ES.getExpr() ? 1 : 0);
-  fprintf(stderr,
-          "\n############## Class: %s -- Constructor Type: %s -- %s "
-          "###############\n",
-          RD->getQualifiedNameAsString().c_str(), T.getAsString().c_str(),
-          __func__);
-
-  if (Inherited.getConstructor() != nullptr || Inherited.getShadowDecl() != nullptr)
-    fprintf(stderr,
-            "\n############# Inherited Constructor: %p Inherited Shadowed %p "
-            "############\n",
-            (void *)Inherited.getConstructor(),
-            (void *)Inherited.getShadowDecl());
 
   return new (C, RD, Extra) CXXConstructorDecl(
       C, RD, StartLoc, NameInfo, T, TInfo, ES, UsesFPIntrin, isInline,
