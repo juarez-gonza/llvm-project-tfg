@@ -12097,6 +12097,8 @@ public:
     DataField = FieldDecl::Create(SemaRef.Context, ToPopulate, ClassLoc,
                                   ClassLoc, &DataFieldII, UnderlyingType,
                                   nullptr, nullptr, true, ICIS_NoInit);
+    DataField->setAccess(AS_private);
+    ToPopulate->addDecl(DataField);
 
     // Create constructor
     CanQualType ClassType = SemaRef.Context.getCanonicalType(
@@ -12123,6 +12125,7 @@ public:
                             /*TInfo=*/nullptr, SC_None, nullptr);
     Ctor->setParams({CtorParam});
 
+
     // Add initializer list
 
     // TODO: see CXXCtorInitializer and build an expr
@@ -12131,18 +12134,45 @@ public:
                     VK_LValue, SourceLocation());
     auto *ICE = ImplicitCastExpr::Create(SemaRef.Context, UnderlyingType,
                                          CK_LValueToRValue, DRE, nullptr,
-                                         VK_XValue, FPOptionsOverride());
+                                         VK_LValue, FPOptionsOverride());
     Expr *InitListArgs = ICE;
     auto *InitList = SemaRef.BuildInitList(ClassLoc, InitListArgs, ClassLoc)
                          .getAs<InitListExpr>();
     auto *MemInitializer =
         SemaRef.BuildMemberInitializer(DataField, InitList, ClassLoc)
             .getAs<CXXCtorInitializer>();
+    assert(MemInitializer->getAnyMember() != nullptr && "AAAAAAAAAAAAAAA");
 
-    SemaRef.SetCtorInitializers(Ctor, false, {MemInitializer});
+    SemaRef.ActOnMemInitializers(Ctor, Ctor->getLocation(), {MemInitializer},
+                                 false);
+
+    // {
+    //   CXXCtorInitializer **baseOrMemberInitializers =
+    //       new (SemaRef.Context) CXXCtorInitializer *[1];
+    //   baseOrMemberInitializers[0] = MemInitializer;
+    //   Ctor->setCtorInitializers(baseOrMemberInitializers);
+    //   fprintf(stderr, "\n################# Added correctly %s ##############\n",
+    //           __func__);
+
+    //   // Constructors implicitly reference the base and member
+    //   // destructors.
+    //   SemaRef.MarkBaseAndMemberDestructorsReferenced(Ctor->getLocation(),
+    //                                                  Ctor->getParent());
+    // }
+    // SemaRef.SetCtorInitializers(Ctor, false, {MemInitializer});
 
     // Set body as empty (this last change broke compilation)
-    Ctor->setBody(CompoundStmt::CreateEmpty(SemaRef.Context, {}, {}));
+    auto *CtorBody = CompoundStmt::CreateEmpty(SemaRef.Context, {}, {});
+    // SemaRef.PushDeclContext(SemaRef.getScopeForContext(Ctor), Ctor);
+    Ctor->setBody(CtorBody);
+    Ctor->setWillHaveBody(false);
+    // SemaRef.ActOnFinishFunctionBody(Ctor, CtorBody);
+    SemaRef.ActOnFinishInlineFunctionDef(Ctor);
+    // SemaRef.PopDeclContext();
+
+    fprintf(stderr,
+            "\n############### CtorInitializers: %d %s ################\n",
+            Ctor->getNumCtorInitializers(), __func__);
 
     // Make the ctor visible to the class declcontext
 
@@ -12156,11 +12186,11 @@ public:
 
     if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor, nullptr))
       SemaRef.SetDeclDeleted(Ctor, ClassLoc);
+
+    Ctor->dumpAsDecl(&SemaRef.Context);
   }
 
-      void DefineDestructor() {
-	SemaRef.DeclareImplicitDestructor(ToPopulate);
-      }
+  void DefineDestructor() { SemaRef.DeclareImplicitDestructor(ToPopulate); }
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
