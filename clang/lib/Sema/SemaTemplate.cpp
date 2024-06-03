@@ -11934,6 +11934,14 @@ static constexpr inline auto isConceptVirtualizable = [](Sema &SemaRef,
 // assume that the concept is virtualizable.
 namespace impl {
 
+std::string getCalleeName(Sema &SemaRef, CallExpr *CallExp) {
+  std::string CalleeName;
+  llvm::raw_string_ostream ss{CalleeName};
+  CallExp->getCallee()->printPretty(ss, nullptr,
+                                    PrintingPolicy(SemaRef.getLangOpts()));
+  return CalleeName;
+}
+
 template <typename CRTP>
 class PopulateVirtualConceptCRTP
     : public RecursiveASTVisitor<PopulateVirtualConceptCRTP<CRTP>> {
@@ -11974,10 +11982,6 @@ private:
     auto MethodType = ReqToMethodType(CompoundReq);
     auto *Method =
         static_cast<CRTP *>(this)->CreateMethod(CompoundReq, MethodType);
-
-    // Add this declaration to the Class, otherwise it does not show up in the
-    // AST (lookup doesn't show it)
-    ToPopulate->addDecl(Method);
     return Method;
   }
 
@@ -12004,9 +12008,30 @@ private:
     return SemaRef.Context.getFunctionType(ReturnTypeInfo->getType(), ArgTypes,
                                            EPI);
   }
+
+protected:
+  SmallVector<ParmVarDecl *> buildParmVarDeclsFromMethodDecl(CXXMethodDecl *Method) {
+    SmallVector<ParmVarDecl *> Params;
+    for (auto Arg : Method->getType()
+                        .getTypePtr()
+                        ->getAs<FunctionProtoType>()
+                        ->getParamTypes())
+      if (!isInstantiationDependent(Arg)) {
+        auto *P =
+            ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
+                                Method->getBeginLoc(), nullptr, Arg,
+                                SemaRef.Context.getTrivialTypeSourceInfo(
+                                    Arg, Method->getBeginLoc()),
+                                SC_None, nullptr);
+        Params.push_back(P);
+        P->setOwningFunction(Method);
+      }
+    return Params;
+  }
 };
 
-class PopulateVirtualConceptBase : public PopulateVirtualConceptCRTP<PopulateVirtualConceptBase> {
+class PopulateVirtualConceptBase
+    : public PopulateVirtualConceptCRTP<PopulateVirtualConceptBase> {
 public:
   using PopulateVirtualConceptCRTP::PopulateVirtualConceptCRTP;
 
@@ -12020,19 +12045,12 @@ public:
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
-    // Get the compound requirement callee name, this will be used to create the
-    // virtual method
-    auto *Callee = cast<CallExpr>(CompoundReq->getExpr())->getCallee();
-    std::string MethodName;
-    {
-      std::string CalleeName;
-      llvm::raw_string_ostream ss{CalleeName};
-      Callee->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
-      MethodName = impl::virtual_concept_prefix + std::move(CalleeName);
-    }
-    auto &MethodII = SemaRef.Context.Idents.get(MethodName);
+    auto *CallExp = cast<CallExpr>(CompoundReq->getExpr());
+    auto *Callee = CallExp->getCallee();
+    auto MethodName = std::string{impl::virtual_concept_prefix} + getCalleeName(SemaRef, CallExp);
 
     // Create the method
+    auto &MethodII = SemaRef.Context.Idents.get(MethodName);
     CXXMethodDecl *Method = CXXMethodDecl::Create(
         SemaRef.Context, ToPopulate, Callee->getExprLoc(),
         DeclarationNameInfo((DeclarationName(&MethodII)), Callee->getExprLoc()),
@@ -12041,25 +12059,14 @@ public:
         SemaRef.getCurFPFeatures().isFPConstrained(),
         /*isInline=*/true, ConstexprSpecKind::Unspecified, SourceLocation(),
         /*TrailingRequiresClause=*/nullptr);
-
-    // Attach params
-    SmallVector<ParmVarDecl *> Params;
-    for (auto Arg :
-         MethodType.getTypePtr()->getAs<FunctionProtoType>()->getParamTypes())
-      if (!isInstantiationDependent(Arg)) {
-        auto *P =
-            ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
-                                Method->getBeginLoc(), nullptr, Arg,
-                                SemaRef.Context.getTrivialTypeSourceInfo(
-                                    Arg, Method->getBeginLoc()),
-                                SC_None, nullptr);
-        Params.push_back(P);
-        P->setOwningFunction(Method);
-      }
-    Method->setParams(Params);
+    Method->setParams(buildParmVarDeclsFromMethodDecl(Method));
 
     // Set public, virtual and check that I haven't screwed up while doing so
     Method->setAccess(AS_public);
+
+    // Add method to decl
+    ToPopulate->addDecl(Method);
+
     Method->setIsPureVirtual();
     Method->setVirtualAsWritten(true);
     SemaRef.CheckPureMethod(Method, SourceRange());
@@ -12162,7 +12169,6 @@ public:
   }
 
   void DefineDestructor() {
-
     SemaRef.AddImplicitlyDeclaredMembersToClass(ToPopulate);
     SemaRef.AddOverriddenMethods(ToPopulate, ToPopulate->getDestructor());
   }
@@ -12173,11 +12179,7 @@ public:
     // create the virtual method
     auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto ReqCallExpArgs = ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
-    std::string CalleeName;
-    {
-      llvm::raw_string_ostream ss{CalleeName};
-      ReqCallExp->getCallee()->printPretty(ss, nullptr, PrintingPolicy(SemaRef.getLangOpts()));
-    }
+    std::string CalleeName = getCalleeName(SemaRef, ReqCallExp);
 
     auto MethodName = impl::virtual_concept_prefix + CalleeName;
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
@@ -12193,118 +12195,21 @@ public:
         /*TrailingRequiresClause=*/nullptr);
 
     // Attach params and create call args
-    SmallVector<ParmVarDecl *> Params;
-    SmallVector<Expr *> Args;
-    for (auto* Arg :
-         ReqCallExpArgs)
-      if (!hasInstantiationDependentType(
-              Arg)) { // the instantiation dependent arg is `this` pointer
-        // Param
-        auto *P =
-            ParmVarDecl::Create(SemaRef.Context, Method, Method->getBeginLoc(),
-                                Method->getBeginLoc(), nullptr, Arg->getType(),
-                                SemaRef.Context.getTrivialTypeSourceInfo(
-                                    Arg->getType(), Method->getBeginLoc()),
-                                SC_None, nullptr);
-        Params.push_back(P);
-        P->setOwningFunction(Method);
-
-        // Expr in Args
-        auto *DRE = new (SemaRef.Context)
-            DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
-                        SourceLocation());
-
-	CastKind CK = Arg->getType()->getAsCXXRecordDecl() != nullptr ? CK_NoOp : CK_LValueToRValue;
-        Args.push_back(ImplicitCastExpr::Create(
-            SemaRef.Context, Arg->getType(), CK, DRE,
-            nullptr, VK_PRValue, FPOptionsOverride()));
-      } else {
-        auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
-                                            Method->getThisType(), true);
-        auto *MemberExp = MemberExpr::Create(
-            SemaRef.Context, ThisExp, true, SourceLocation(), {},
-            SourceLocation(), DataField,
-            DeclAccessPair::make(DataField, AS_public), {}, {},
-					     DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
-	CastKind CK = UnderlyingType->getAsCXXRecordDecl() != nullptr ? CK_NoOp : CK_LValueToRValue;
-        Args.push_back(ImplicitCastExpr::Create(
-            SemaRef.Context, MemberExp->getType(), CK, MemberExp,
-            nullptr, VK_PRValue, FPOptionsOverride()));
-      }
+    SmallVector<ParmVarDecl *> Params = buildParmVarDeclsFromMethodDecl(Method);
+    SmallVector<Expr *> Args = buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
     Method->setParams(Params);
 
     // Set public
     Method->setAccess(AS_public);
 
-    // TODO: all this lookup must be tested and factored out into its own
-    // function
+    // Add method to decl (TODO: should push on scope chains)
+    ToPopulate->addDecl(Method);
+    // Set method as an override of the method in the virtual concept's base class
+    SemaRef.AddOverriddenMethods(ToPopulate, Method);
 
-    auto &FunctionII = SemaRef.Context.Idents.get(CalleeName);
-    LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
-                        Sema::LookupOrdinaryName);
+    // Define method's body
 
-    if (!SemaRef.LookupName(
-            lookup, SemaRef.getScopeForContext(ToPopulate->getDeclContext())) ||
-        lookup.isAmbiguous() || lookup.empty()) {
-      // TODO: handle this failure
-      // Lookup failed, the underlying type is not suitable for being a
-      // declcontext
-      return nullptr;
-    }
-
-    { // start of lookupFilter scope
-      // Filter out deductions
-      // See Sema::LookupLiteralOperator, this is heavily based on that
-      auto lookupFilter = lookup.makeFilter();
-      while (lookupFilter.hasNext()) {
-        // Skip invalid declarations
-        if (auto *D = lookupFilter.next(); !D->isInvalidDecl())
-          // Currently we do not support overloads to be template functions,
-          // just for simplicity
-          if (auto *FD = dyn_cast<FunctionDecl>(D);
-              FD != nullptr && FD->getNumParams() == ReqCallExpArgs.size()) {
-
-	    // Check if all parameter types match
-            auto comparissonPairs = llvm::zip(FD->parameters(), ReqCallExpArgs);
-            auto mustKeep = std::all_of(
-                comparissonPairs.begin(), comparissonPairs.end(),
-                [this](decltype(*comparissonPairs.begin()) PandArg) {
-                  auto [P, Arg] = PandArg;
-                  auto ToCompare = hasInstantiationDependentType(Arg)
-                                       ? UnderlyingType
-                                       : Arg->getType();
-                  // If has instantiation dependent type, then we are looking at
-                  // the underlying type against the current parameter in FD.
-                  // Otherwise, regular parameter comparisson
-                  return SemaRef.Context.hasSameUnqualifiedType(P->getType(),
-                                                                ToCompare);
-                });
-
-            if (mustKeep) {
-              // If this is a keeper, delete every other overload and leave the
-              // while loop
-              while (lookupFilter.hasNext()) {
-                lookupFilter.next();
-                lookupFilter.erase();
-              }
-              goto while_out;
-            }
-          }
-
-	// If it is not a keeper, erase it from the lookup result
-        lookupFilter.erase();
-      }
-    while_out:
-      lookupFilter.done();
-    } // end of lookupFilter scope
-
-    if (!lookup.isSingleResult()) {
-      // TODO: handle this failure
-      // failed to reduce lookup hits to a single function
-      return nullptr;
-    }
-
-    FunctionDecl *FD = lookup.getAsSingle<FunctionDecl>();
+    FunctionDecl *FD = lookupFunctionDeclOnUnderlyingType(CalleeName, ReqCallExpArgs);
     const auto *FDType = FD->getType()->castAs<FunctionType>();
     auto FDQType = QualType(FDType, 0);
 
@@ -12331,10 +12236,127 @@ public:
     auto *Body = CompoundStmt::Create(SemaRef.Context, {RetStmt}, {}, {}, {});
     Method->setBody(Body);
 
-    // Set method as an override of the method in the virtual concept's base
-    // class
-    SemaRef.AddOverriddenMethods(ToPopulate, Method);
     return Method;
+  }
+
+  SmallVector<Expr *>
+  buildDelegatedCallExpArgs(CXXMethodDecl *Method,
+                            ArrayRef<ParmVarDecl *> Params,
+                            ArrayRef<Expr *> ReqCallExpArgs) {
+    assert(Params.size() <= ReqCallExpArgs.size());
+    int ParamIdx = 0;
+    auto Map = [this, Method, Params, &ParamIdx](Expr *Arg) mutable {
+      if (!hasInstantiationDependentType(
+              Arg)) { // the instantiation dependent arg is `this` pointer
+        // Expr in Args
+	auto *P = Params[ParamIdx++];
+        auto *DRE = new (SemaRef.Context)
+            DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
+                        SourceLocation());
+
+        CastKind CK = Arg->getType()->getAsCXXRecordDecl() != nullptr
+                          ? CK_NoOp
+                          : CK_LValueToRValue;
+
+        auto *ICE = ImplicitCastExpr::Create(SemaRef.Context, Arg->getType(),
+                                             CK, DRE, nullptr, VK_PRValue,
+                                             FPOptionsOverride());
+	return ICE;
+      }
+
+      auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
+                                          Method->getThisType(), true);
+      auto *MemberExp = MemberExpr::Create(
+          SemaRef.Context, ThisExp, true, SourceLocation(), {},
+          SourceLocation(), DataField,
+          DeclAccessPair::make(DataField, AS_public), {}, {},
+          DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
+
+      CastKind CK = UnderlyingType->getAsCXXRecordDecl() != nullptr
+                        ? CK_NoOp
+                        : CK_LValueToRValue;
+
+      auto *ICE = ImplicitCastExpr::Create(
+          SemaRef.Context, MemberExp->getType(), CK, MemberExp, nullptr,
+          VK_PRValue, FPOptionsOverride());
+
+      return ICE;
+    };
+
+    SmallVector<Expr *> Args;
+    std::transform(ReqCallExpArgs.begin(), ReqCallExpArgs.end(),
+                   std::back_inserter(Args), Map);
+    return Args;
+  }
+
+  FunctionDecl *lookupFunctionDeclOnUnderlyingType(std::string CalleeName, ArrayRef<Expr*> CallExpArgs) {
+    auto &FunctionII = SemaRef.Context.Idents.get(std::move(CalleeName));
+    LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
+                        Sema::LookupOrdinaryName);
+
+    if (!SemaRef.LookupName(
+            lookup, SemaRef.getScopeForContext(ToPopulate->getDeclContext())) ||
+        lookup.isAmbiguous() || lookup.empty()) {
+      // TODO: handle this failure
+      // Lookup failed, the underlying type is not suitable for being a
+      // declcontext
+      return nullptr;
+    }
+
+    { // start of lookupFilter scope
+      // Filter out deductions
+      // See Sema::LookupLiteralOperator, this is heavily based on that
+      auto lookupFilter = lookup.makeFilter();
+      while (lookupFilter.hasNext()) {
+        // Skip invalid declarations
+        if (auto *D = lookupFilter.next(); !D->isInvalidDecl())
+          // Currently we do not support overloads to be template functions,
+          // just for simplicity
+          if (auto *FD = dyn_cast<FunctionDecl>(D);
+              FD != nullptr && FD->getNumParams() == CallExpArgs.size()) {
+
+            // Check if all parameter types match
+            auto comparissonPairs = llvm::zip(FD->parameters(), CallExpArgs);
+            auto mustKeep = std::all_of(
+                comparissonPairs.begin(), comparissonPairs.end(),
+                [this](decltype(*comparissonPairs.begin()) PandArg) {
+                  auto [P, Arg] = PandArg;
+                  auto ToCompare = hasInstantiationDependentType(Arg)
+                                       ? UnderlyingType
+                                       : Arg->getType();
+                  // If has instantiation dependent type, then we are
+                  // looking at the underlying type against the
+                  // current parameter in FD. Otherwise, regular
+                  // parameter comparisson
+                  return SemaRef.Context.hasSameUnqualifiedType(P->getType(),
+                                                                ToCompare);
+                });
+
+            if (mustKeep) {
+              // If this is a keeper, delete every other overload and leave the
+              // while loop
+              while (lookupFilter.hasNext()) {
+                lookupFilter.next();
+                lookupFilter.erase();
+              }
+              goto while_out;
+            }
+          }
+
+        // If it is not a keeper, erase it from the lookup result
+        lookupFilter.erase();
+      }
+    while_out:
+      lookupFilter.done();
+    } // end of lookupFilter scope
+
+    if (!lookup.isSingleResult()) {
+      // TODO: handle this failure
+      // failed to reduce lookup hits to a single function
+      return nullptr;
+    }
+
+    return lookup.getAsSingle<FunctionDecl>();
   }
 }; // PopulateVirtualConceptDerived
 } // namespace impl
@@ -12405,23 +12427,21 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   // Create BaseSpecifier for virtual concept's base
 
   TypeSourceInfo *VCBaseSrcInfo = Context.CreateTypeSourceInfo(BaseT);
-  // BaseT.getTypePtr()->getAsCXXRecordDecl()->getLambdaTypeInfo()
-  // GetTypeFromParser(ParsedType::make(BaseT), &VCBaseSrcInfo);
-  // assert(VCBaseSrcInfo != nullptr &&
-  //        "\n####################### VCBaseSrcInfo should not be null "
-  //        "######################\n");
 
   // Create Type
-  auto *Derived = CXXRecordDecl::CreateVirtualConceptDerived(
-      Context, DerivedScope->getEntity(), SourceLocation(),
-      &Context.Idents.get(
-          tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType)),
-							     VCBaseSrcInfo);
+  auto *DC = DerivedScope->getEntity();
+  auto* DerivedII = &Context.Idents.get(tfg::ToVirtualConceptDerivedName(
+									 Concept, UnderlyingType));
+
+  auto *Derived =
+      CXXRecordDecl::Create(Context, TagTypeKind::Class, DC, SourceLocation(),
+                            SourceLocation(), DerivedII);
+  Derived->startDefinition();
+  Derived->setImplicit(true);
 
   // Create and add base specifier
   auto *BaseSpecifier = new (Context) CXXBaseSpecifier(
       SourceRange(), false, true, AS_public, VCBaseSrcInfo, SourceLocation());
-
   ActOnBaseSpecifiers(Derived, {BaseSpecifier});
 
   // Populate with methods
@@ -12432,6 +12452,9 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   // Finish class definition
   Derived->completeDefinition();
   CheckCompletedCXXClass(DerivedScope, Derived);
+
+  // Add Derived to DC
+  DC->addDecl(Derived);
 
   return Derived;
 }
