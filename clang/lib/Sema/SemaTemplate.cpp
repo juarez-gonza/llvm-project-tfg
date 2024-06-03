@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "TreeTransform.h"
+#include "clang-c/Index.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
@@ -27,6 +28,7 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceLocation.h"
+#include "clang/Basic/Specifiers.h"
 #include "clang/Basic/Stack.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/DeclSpec.h"
@@ -11946,6 +11948,8 @@ public:
       : SemaRef(SemaRef), Concept{Concept}, ToPopulate{ToPopulate} {}
 
   void operator()() {
+    static_cast<CRTP *>(this)->DefineConstructor();
+
     this->TraverseDecl(Concept);
     // Mark the class as implicit - not written in code - (see
     // ASTContext::buildImplicitRecord)
@@ -11954,8 +11958,6 @@ public:
         const_cast<ASTContext &>(SemaRef.Context),
         TypeVisibilityAttr::Default));
 
-    // Do not forget about the destructor and constructor
-    static_cast<CRTP *>(this)->DefineConstructor();
     static_cast<CRTP *>(this)->DefineDestructor();
   }
 
@@ -11970,7 +11972,8 @@ private:
   CXXMethodDecl *AddMethodFromReq(concepts::Requirement *Req) {
     auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
     auto MethodType = ReqToMethodType(CompoundReq);
-    auto *Method = static_cast<CRTP*>(this)->CreateMethod(CompoundReq, MethodType);
+    auto *Method =
+        static_cast<CRTP *>(this)->CreateMethod(CompoundReq, MethodType);
 
     // Add this declaration to the Class, otherwise it does not show up in the
     // AST (lookup doesn't show it)
@@ -12090,7 +12093,15 @@ public:
         UnderlyingType{QualType(UnderlyingType, 0)} {}
 
   void DefineConstructor() {
+    // SemaRef.DeclareImplicitDefaultConstructor(ToPopulate);
+    // SemaRef.DeclareImplicitCopyConstructor(ToPopulate);
+    // SemaRef.DeclareImplicitMoveConstructor(ToPopulate);
+    // SemaRef.DeclareImplicitCopyAssignment(ToPopulate);
+    // SemaRef.DeclareImplicitMoveAssignment(ToPopulate);
+
     auto ClassLoc = ToPopulate->getLocation();
+
+
 
     IdentifierInfo &DataFieldII =
         SemaRef.Context.Idents.get("_tfg_virtual_data");
@@ -12105,15 +12116,15 @@ public:
         SemaRef.Context.getTypeDeclType(ToPopulate));
     auto ConstructorName =
         SemaRef.Context.DeclarationNames.getCXXConstructorName(ClassType);
-    DeclarationNameInfo ConstructorNameInfo{ConstructorName, ClassLoc};
+    DeclarationNameInfo CtorNameInfo{ConstructorName, ClassLoc};
     auto CtorType = SemaRef.Context.getFunctionType(
         SemaRef.Context.VoidTy, {UnderlyingType},
-        FunctionProtoType::ExtProtoInfo{}.withExceptionSpec(EST_None));
+        FunctionProtoType::ExtProtoInfo());
     auto *Ctor = CXXConstructorDecl::Create(
-        SemaRef.Context, ToPopulate, ClassLoc, ConstructorNameInfo, CtorType,
-        nullptr, ExplicitSpecifier(),
-        SemaRef.getCurFPFeatures().isFPConstrained(), true, false,
-        ConstexprSpecKind::Unspecified);
+        SemaRef.Context, ToPopulate, ClassLoc, CtorNameInfo, CtorType,
+        SemaRef.Context.getTrivialTypeSourceInfo(CtorType, SourceLocation()),
+        ExplicitSpecifier(), SemaRef.getCurFPFeatures().isFPConstrained(), true,
+        false, ConstexprSpecKind::Unspecified);
     Ctor->setAccess(AS_public);
 
     IdentifierInfo &ParamII =
@@ -12125,50 +12136,24 @@ public:
                             /*TInfo=*/nullptr, SC_None, nullptr);
     Ctor->setParams({CtorParam});
 
-
     // Add initializer list
-
-    // TODO: see CXXCtorInitializer and build an expr
     auto *DRE = new (SemaRef.Context)
         DeclRefExpr(SemaRef.Context, CtorParam, false, CtorParam->getType(),
                     VK_LValue, SourceLocation());
-    auto *ICE = ImplicitCastExpr::Create(SemaRef.Context, UnderlyingType,
-                                         CK_LValueToRValue, DRE, nullptr,
-                                         VK_LValue, FPOptionsOverride());
-    Expr *InitListArgs = ICE;
+    Expr *InitListArgs = DRE;
     auto *InitList = SemaRef.BuildInitList(ClassLoc, InitListArgs, ClassLoc)
                          .getAs<InitListExpr>();
     auto *MemInitializer =
         SemaRef.BuildMemberInitializer(DataField, InitList, ClassLoc)
             .getAs<CXXCtorInitializer>();
-    assert(MemInitializer->getAnyMember() != nullptr && "AAAAAAAAAAAAAAA");
-
     SemaRef.ActOnMemInitializers(Ctor, Ctor->getLocation(), {MemInitializer},
                                  false);
 
-    // {
-    //   CXXCtorInitializer **baseOrMemberInitializers =
-    //       new (SemaRef.Context) CXXCtorInitializer *[1];
-    //   baseOrMemberInitializers[0] = MemInitializer;
-    //   Ctor->setCtorInitializers(baseOrMemberInitializers);
-    //   fprintf(stderr, "\n################# Added correctly %s ##############\n",
-    //           __func__);
-
-    //   // Constructors implicitly reference the base and member
-    //   // destructors.
-    //   SemaRef.MarkBaseAndMemberDestructorsReferenced(Ctor->getLocation(),
-    //                                                  Ctor->getParent());
-    // }
-    // SemaRef.SetCtorInitializers(Ctor, false, {MemInitializer});
-
     // Set body as empty (this last change broke compilation)
     auto *CtorBody = CompoundStmt::CreateEmpty(SemaRef.Context, {}, {});
-    // SemaRef.PushDeclContext(SemaRef.getScopeForContext(Ctor), Ctor);
     Ctor->setBody(CtorBody);
     Ctor->setWillHaveBody(false);
-    // SemaRef.ActOnFinishFunctionBody(Ctor, CtorBody);
     SemaRef.ActOnFinishInlineFunctionDef(Ctor);
-    // SemaRef.PopDeclContext();
 
     fprintf(stderr,
             "\n############### CtorInitializers: %d %s ################\n",
@@ -12184,13 +12169,17 @@ public:
       SemaRef.PushOnScopeChains(Ctor, S, false);
     ToPopulate->addDecl(Ctor);
 
-    if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor, nullptr))
+    if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor,
+                                          nullptr))
       SemaRef.SetDeclDeleted(Ctor, ClassLoc);
-
-    Ctor->dumpAsDecl(&SemaRef.Context);
   }
 
-  void DefineDestructor() { SemaRef.DeclareImplicitDestructor(ToPopulate); }
+  void DefineDestructor() {
+
+    SemaRef.AddImplicitlyDeclaredMembersToClass(ToPopulate);
+    // auto *Dtor = SemaRef.DeclareImplicitDestructor(ToPopulate);
+    SemaRef.AddOverriddenMethods(ToPopulate, ToPopulate->getDestructor());
+  }
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
@@ -12239,14 +12228,19 @@ public:
             DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
                         SourceLocation());
         Args.push_back(ImplicitCastExpr::Create(
-            SemaRef.Context, Arg->getType(), CK_FunctionToPointerDecay, DRE,
-            nullptr, VK_LValue, FPOptionsOverride()));
+            SemaRef.Context, Arg->getType(), CK_LValueToRValue, DRE,
+            nullptr, VK_PRValue, FPOptionsOverride()));
       } else {
-        auto *ThisExpr = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
-                                             Method->getThisType(), false);
-        Args.push_back(UnaryOperator::Create(
-            SemaRef.Context, ThisExpr, UO_Deref, ThisExpr->getType(), VK_LValue,
-            OK_Ordinary, SourceLocation(), false, FPOptionsOverride()));
+        auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
+                                            Method->getThisType(), true);
+        auto *MemberExp = MemberExpr::Create(
+            SemaRef.Context, ThisExp, true, SourceLocation(), {},
+            SourceLocation(), DataField,
+            DeclAccessPair::make(DataField, AS_public), {}, {},
+            DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
+        Args.push_back(ImplicitCastExpr::Create(
+            SemaRef.Context, MemberExp->getType(), CK_LValueToRValue, MemberExp,
+            nullptr, VK_PRValue, FPOptionsOverride()));
       }
     Method->setParams(Params);
 
@@ -12435,7 +12429,13 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
       Context, DerivedScope->getEntity(), SourceLocation(),
       &Context.Idents.get(
           tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType)),
-      VCBaseSrcInfo);
+							     VCBaseSrcInfo);
+
+  // Create and add base specifier
+  auto *BaseSpecifier = new (Context) CXXBaseSpecifier(
+      SourceRange(), false, true, AS_public, VCBaseSrcInfo, SourceLocation());
+
+  ActOnBaseSpecifiers(Derived, {BaseSpecifier});
 
   // Populate with methods
   tfg::populateVirtualConceptDerived(*this, Concept,

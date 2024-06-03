@@ -9892,8 +9892,11 @@ static bool findTrivialSpecialMember(Sema &S, CXXRecordDecl *RD,
       // out. Otherwise, if there's any user-provided default constructor, point
       // to that as an example of why there's not a trivial one.
       CXXConstructorDecl *DefCtor = nullptr;
-      if (RD->needsImplicitDefaultConstructor())
+      if (RD->needsImplicitDefaultConstructor()) {
+	fprintf(stderr, "\n################# %s %s ##################\n",
+		RD->getQualifiedNameAsString().c_str(), __func__);
         S.DeclareImplicitDefaultConstructor(RD);
+      }
       for (auto *CI : RD->ctors()) {
         if (!CI->isDefaultConstructor())
           continue;
@@ -10513,13 +10516,22 @@ void Sema::ActOnFinishCXXMemberSpecification(
     Diag(AL.getLoc(), diag::warn_attribute_after_definition_ignored) << AL;
   }
 
+  fprintf(stderr,
+          "\n################# About to add act on fields "
+          "%s "
+          "##################\n",
+          __func__);
   ActOnFields(S, RLoc, TagDecl,
               llvm::ArrayRef(
                   // strict aliasing violation!
                   reinterpret_cast<Decl **>(FieldCollector->getCurFields()),
                   FieldCollector->getCurNumFields()),
               LBrac, RBrac, AttrList);
-
+  fprintf(stderr,
+          "\n################# Done with act on fields "
+          "%s "
+          "##################\n",
+          __func__);
   CheckCompletedCXXClass(S, cast<CXXRecordDecl>(TagDecl));
 }
 
@@ -10574,8 +10586,13 @@ void Sema::AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl) {
     if (ClassDecl->needsImplicitDefaultConstructor()) {
       ++getASTContext().NumImplicitDefaultConstructors;
 
-      if (ClassDecl->hasInheritedConstructor())
+      if (ClassDecl->hasInheritedConstructor()) {
+        fprintf(stderr,
+                "\n################# Has Inherited Constructor %s %s "
+                "##################\n",
+                ClassDecl->getQualifiedNameAsString().c_str(), __func__);
         DeclareImplicitDefaultConstructor(ClassDecl);
+      }
     }
 
     if (ClassDecl->needsImplicitCopyConstructor()) {
@@ -10584,6 +10601,8 @@ void Sema::AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl) {
       // If the properties or semantics of the copy constructor couldn't be
       // determined while the class was being declared, force a declaration
       // of it now.
+      fprintf(stderr, "\n################# Copy Constructor %s %s ##################\n",
+	      ClassDecl->getQualifiedNameAsString().c_str(), __func__);
       if (ClassDecl->needsOverloadResolutionForCopyConstructor() ||
           ClassDecl->hasInheritedConstructor())
         DeclareImplicitCopyConstructor(ClassDecl);
@@ -10602,6 +10621,8 @@ void Sema::AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl) {
 
     if (getLangOpts().CPlusPlus11 &&
         ClassDecl->needsImplicitMoveConstructor()) {
+      fprintf(stderr, "\n################# Move Constructor %s %s ##################\n",
+		    ClassDecl->getQualifiedNameAsString().c_str(), __func__);
       ++getASTContext().NumImplicitMoveConstructors;
 
       if (ClassDecl->needsOverloadResolutionForMoveConstructor() ||
@@ -10610,6 +10631,8 @@ void Sema::AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl) {
     }
 
     if (ClassDecl->needsImplicitCopyAssignment()) {
+      fprintf(stderr, "\n################# Copy Assignment %s %s ##################\n",
+		    ClassDecl->getQualifiedNameAsString().c_str(), __func__);
       ++getASTContext().NumImplicitCopyAssignmentOperators;
 
       // If we have a dynamic class, then the copy assignment operator may be
@@ -10623,6 +10646,8 @@ void Sema::AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl) {
     }
 
     if (getLangOpts().CPlusPlus11 && ClassDecl->needsImplicitMoveAssignment()) {
+      fprintf(stderr, "\n################# Move Assignment %s %s ##################\n",
+		    ClassDecl->getQualifiedNameAsString().c_str(), __func__);
       ++getASTContext().NumImplicitMoveAssignmentOperators;
 
       // Likewise for the move assignment operator.
@@ -10633,6 +10658,8 @@ void Sema::AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl) {
     }
 
     if (ClassDecl->needsImplicitDestructor()) {
+      fprintf(stderr, "\n################# Destructor %s %s ##################\n",
+		    ClassDecl->getQualifiedNameAsString().c_str(), __func__);
       ++getASTContext().NumImplicitDestructors;
 
       // If we have a dynamic class, then the destructor may be virtual, so we
@@ -13981,6 +14008,9 @@ CXXConstructorDecl *Sema::DeclareImplicitDefaultConstructor(
   DeclarationName Name
     = Context.DeclarationNames.getCXXConstructorName(ClassType);
   DeclarationNameInfo NameInfo(Name, ClassLoc);
+
+  fprintf(stderr, "\n################# %s %s ##################\n",
+          ClassDecl->getQualifiedNameAsString().c_str(), __func__);
   CXXConstructorDecl *DefaultCon = CXXConstructorDecl::Create(
       Context, ClassDecl, ClassLoc, NameInfo, /*Type*/ QualType(),
       /*TInfo=*/nullptr, ExplicitSpecifier(),
@@ -14027,6 +14057,8 @@ void Sema::DefineImplicitDefaultConstructor(SourceLocation CurrentLocation,
     "DefineImplicitDefaultConstructor - call it for implicit default ctor");
   if (Constructor->willHaveBody() || Constructor->isInvalidDecl())
     return;
+
+  fprintf(stderr, "\n################### %s ##################\n", __func__);
 
   CXXRecordDecl *ClassDecl = Constructor->getParent();
   assert(ClassDecl && "DefineImplicitDefaultConstructor - invalid constructor");
@@ -14103,6 +14135,8 @@ Sema::findInheritingConstructor(SourceLocation Loc,
       defaultedSpecialMemberIsConstexpr(*this, Derived, CXXDefaultConstructor,
                                         false, BaseCtor, &ICI);
 
+  fprintf(stderr, "\n################# %s %s ##################\n",
+          Derived->getQualifiedNameAsString().c_str(), __func__);
   CXXConstructorDecl *DerivedCtor = CXXConstructorDecl::Create(
       Context, Derived, UsingLoc, NameInfo, TInfo->getType(), TInfo,
       BaseCtor->getExplicitSpecifier(), getCurFPFeatures().isFPConstrained(),
@@ -15714,6 +15748,8 @@ CXXConstructorDecl *Sema::DeclareImplicitCopyConstructor(
 
   //   An implicitly-declared copy constructor is an inline public
   //   member of its class.
+  fprintf(stderr, "\n################# %s %s ##################\n",
+          ClassDecl->getQualifiedNameAsString().c_str(), __func__);
   CXXConstructorDecl *CopyConstructor = CXXConstructorDecl::Create(
       Context, ClassDecl, ClassLoc, NameInfo, QualType(), /*TInfo=*/nullptr,
       ExplicitSpecifier(), getCurFPFeatures().isFPConstrained(),
@@ -15853,6 +15889,8 @@ CXXConstructorDecl *Sema::DeclareImplicitMoveConstructor(
   SourceLocation ClassLoc = ClassDecl->getLocation();
   DeclarationNameInfo NameInfo(Name, ClassLoc);
 
+  fprintf(stderr, "\n################# %s %s ##################\n",
+          ClassDecl->getQualifiedNameAsString().c_str(), __func__);
   // C++11 [class.copy]p11:
   //   An implicitly-declared copy/move constructor is an inline public
   //   member of its class.

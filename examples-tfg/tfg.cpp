@@ -66,18 +66,15 @@ void use_usable(Usable virtual *x) {
   x->_tfg_virtual_use();
 }
 
-//struct _tfg_virtual_Usable_char : _tfg_virtual_Usable {
-//  char x;
-//  _tfg_virtual_Usable_char() : x{'a'} {}
-//  _tfg_virtual_Usable_char(char x) : x{x} {}
-//  int _tfg_virtual_use() override {
-//    puts("usable_char::use()");
-//    return use(x);
-//  }
-//  ~_tfg_virtual_Usable_char() override {
-//    puts("~usable_char()");
-//  }
-//};
+struct _tfg_virtual_Usable_int : _tfg_virtual_Usable {
+  int x;
+  _tfg_virtual_Usable_int(int x) : x{x} {}
+  int _tfg_virtual_use() override {
+    //puts("usable_int::use()");
+    return use(x);
+  }
+  //~_tfg_virtual_Usable_int() override = default;
+};
 
 /*
 struct asd {
@@ -93,17 +90,17 @@ struct asdasd : public asd {
 };
 */
 
-template <typename T>
-struct ptr {
-  T* x;
-  T* operator->() {
-    return x;
-  }
-};
-
-void use_usable_ptr(ptr<Usable virtual> x) {
-  x->_tfg_virtual_use();
-}
+//template <typename T>
+//struct ptr {
+//  T* x;
+//  T* operator->() {
+//    return x;
+//  }
+//};
+//
+//void use_usable_ptr(ptr<Usable virtual> x) {
+//  x->_tfg_virtual_use();
+//}
 
 
 //static_assert(Usable<char>, "LA PUTA MADRE");

@@ -189,11 +189,6 @@ CXXRecordDecl *CXXRecordDecl::CreateVirtualConceptDerived(
   C.getTypeDeclType(R, /*PrevDecl=*/nullptr);
   DC->addDecl(R);
 
-  // Create and add base specifier
-  auto *BaseSpecifier = new (C) CXXBaseSpecifier(
-      SourceRange(), false, true, AS_public, VCBaseSrcInfo, SourceLocation());
-  R->setBases(&BaseSpecifier, 1);
-
   return R;
 }
 
@@ -2757,7 +2752,20 @@ CXXConstructorDecl *CXXConstructorDecl::Create(
          "Name must refer to a constructor");
   unsigned Extra =
       additionalSizeToAlloc<InheritedConstructor, ExplicitSpecifier>(
-          Inherited ? 1 : 0, ES.getExpr() ? 1 : 0);
+								     Inherited ? 1 : 0, ES.getExpr() ? 1 : 0);
+  fprintf(stderr,
+          "\n############## Class: %s -- Constructor Type: %s -- %s "
+          "###############\n",
+          RD->getQualifiedNameAsString().c_str(), T.getAsString().c_str(),
+          __func__);
+
+  if (Inherited.getConstructor() != nullptr || Inherited.getShadowDecl() != nullptr)
+    fprintf(stderr,
+            "\n############# Inherited Constructor: %p Inherited Shadowed %p "
+            "############\n",
+            (void *)Inherited.getConstructor(),
+            (void *)Inherited.getShadowDecl());
+
   return new (C, RD, Extra) CXXConstructorDecl(
       C, RD, StartLoc, NameInfo, T, TInfo, ES, UsesFPIntrin, isInline,
       isImplicitlyDeclared, ConstexprKind, Inherited, TrailingRequiresClause);

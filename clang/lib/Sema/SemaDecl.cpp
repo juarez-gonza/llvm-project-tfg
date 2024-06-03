@@ -19409,6 +19409,12 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
       }
 
       // Add any implicitly-declared members to this class.
+
+      fprintf(stderr,
+              "\n################# About to add implicitly declared members to "
+              "%s %s "
+              "##################\n",
+              CXXRecord->getQualifiedNameAsString().c_str(), __func__);
       AddImplicitlyDeclaredMembersToClass(CXXRecord);
 
       if (!CXXRecord->isDependentType()) {
@@ -19449,6 +19455,10 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
                 Record->setInvalidDecl();
               }
             }
+            fprintf(
+                stderr,
+                "\n################ Completed Definition %s ################\n",
+                __func__);
             CXXRecord->completeDefinition(&FinalOverriders);
             Completed = true;
           }
