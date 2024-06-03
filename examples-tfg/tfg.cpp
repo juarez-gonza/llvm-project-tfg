@@ -1,4 +1,4 @@
-#include <iostream>
+//#include <iostream>
 // #include <string>
 //#include <stdio.h>
 //#include <memory>
@@ -66,18 +66,18 @@ void use_usable(Usable virtual *x) {
   x->_tfg_virtual_use();
 }
 
-struct _tfg_virtual_Usable_char : _tfg_virtual_Usable {
-  char x;
-  _tfg_virtual_Usable_char() : x{'a'} {}
-  _tfg_virtual_Usable_char(char x) : x{x} {}
-  int _tfg_virtual_use() override {
-    puts("usable_char::use()");
-    return use(x);
-  }
-  ~_tfg_virtual_Usable_char() override {
-    puts("~usable_char()");
-  }
-};
+//struct _tfg_virtual_Usable_char : _tfg_virtual_Usable {
+//  char x;
+//  _tfg_virtual_Usable_char() : x{'a'} {}
+//  _tfg_virtual_Usable_char(char x) : x{x} {}
+//  int _tfg_virtual_use() override {
+//    puts("usable_char::use()");
+//    return use(x);
+//  }
+//  ~_tfg_virtual_Usable_char() override {
+//    puts("~usable_char()");
+//  }
+//};
 
 /*
 struct asd {
@@ -106,11 +106,11 @@ void use_usable_ptr(ptr<Usable virtual> x) {
 }
 
 
-static_assert(Usable<char>, "LA PUTA MADRE");
+//static_assert(Usable<char>, "LA PUTA MADRE");
 
 int main() {
-  Usable virtual c{'a'};
-  use_usable_ptr(ptr<Usable virtual>(&c));
-  use_usable(&c);
+  Usable virtual c('a');
+  //use_usable_ptr(ptr<Usable virtual>(&c));
+  //use_usable(&c);
   return 0;
 }

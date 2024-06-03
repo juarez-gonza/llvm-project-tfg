@@ -12079,7 +12079,8 @@ namespace impl {
 class PopulateVirtualConceptDerived
     : public PopulateVirtualConceptCRTP<PopulateVirtualConceptDerived> {
   CXXRecordDecl *Base;
-  QualType UnderlyingType;
+      QualType UnderlyingType;
+      FieldDecl *DataField = nullptr;
 
 public:
   PopulateVirtualConceptDerived(Sema &SemaRef, ConceptDecl *Concept,
@@ -12089,14 +12090,77 @@ public:
         UnderlyingType{QualType(UnderlyingType, 0)} {}
 
   void DefineConstructor() {
-    // TODO: define data member here and single argument constructor for said
-    // data member
+    auto ClassLoc = ToPopulate->getLocation();
+
+    IdentifierInfo &DataFieldII =
+        SemaRef.Context.Idents.get("_tfg_virtual_data");
+    DataField = FieldDecl::Create(SemaRef.Context, ToPopulate, ClassLoc,
+                                  ClassLoc, &DataFieldII, UnderlyingType,
+                                  nullptr, nullptr, true, ICIS_NoInit);
+
+    // Create constructor
+    CanQualType ClassType = SemaRef.Context.getCanonicalType(
+        SemaRef.Context.getTypeDeclType(ToPopulate));
+    auto ConstructorName =
+        SemaRef.Context.DeclarationNames.getCXXConstructorName(ClassType);
+    DeclarationNameInfo ConstructorNameInfo{ConstructorName, ClassLoc};
+    auto CtorType = SemaRef.Context.getFunctionType(
+        SemaRef.Context.VoidTy, {UnderlyingType},
+        FunctionProtoType::ExtProtoInfo{}.withExceptionSpec(EST_None));
+    auto *Ctor = CXXConstructorDecl::Create(
+        SemaRef.Context, ToPopulate, ClassLoc, ConstructorNameInfo, CtorType,
+        nullptr, ExplicitSpecifier(),
+        SemaRef.getCurFPFeatures().isFPConstrained(), true, false,
+        ConstexprSpecKind::Unspecified);
+    Ctor->setAccess(AS_public);
+
+    IdentifierInfo &ParamII =
+        SemaRef.Context.Idents.get("_tfg_virtual_data_param");
+    ParmVarDecl *CtorParam =
+        ParmVarDecl::Create(SemaRef.Context, Ctor, ClassLoc, ClassLoc,
+                            /*IdentifierInfo=*/
+                            &ParamII, UnderlyingType,
+                            /*TInfo=*/nullptr, SC_None, nullptr);
+    Ctor->setParams({CtorParam});
+
+    // Add initializer list
+
+    // TODO: see CXXCtorInitializer and build an expr
+    auto *DRE = new (SemaRef.Context)
+        DeclRefExpr(SemaRef.Context, CtorParam, false, CtorParam->getType(),
+                    VK_LValue, SourceLocation());
+    auto *ICE = ImplicitCastExpr::Create(SemaRef.Context, UnderlyingType,
+                                         CK_LValueToRValue, DRE, nullptr,
+                                         VK_XValue, FPOptionsOverride());
+    Expr *InitListArgs = ICE;
+    auto *InitList = SemaRef.BuildInitList(ClassLoc, InitListArgs, ClassLoc)
+                         .getAs<InitListExpr>();
+    auto *MemInitializer =
+        SemaRef.BuildMemberInitializer(DataField, InitList, ClassLoc)
+            .getAs<CXXCtorInitializer>();
+
+    SemaRef.SetCtorInitializers(Ctor, false, {MemInitializer});
+
+    // Set body as empty (this last change broke compilation)
+    Ctor->setBody(CompoundStmt::CreateEmpty(SemaRef.Context, {}, {}));
+
+    // Make the ctor visible to the class declcontext
+
+    // TODO: check if this works for move-only types, perhaps we should call
+    // ShouldDeleteSpecialMemberDeclaration and see if any special operation
+    // should be removed according to the type of the UnderlyingType type.
+    Scope *S = SemaRef.getScopeForContext(ToPopulate);
+    if (S)
+      SemaRef.PushOnScopeChains(Ctor, S, false);
+    ToPopulate->addDecl(Ctor);
+
+    if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor, nullptr))
+      SemaRef.SetDeclDeleted(Ctor, ClassLoc);
   }
 
-  void DefineDestructor() {
-    // Do nothing, we are not generating special member functions
-    // and the default destructor is good enough
-  }
+      void DefineDestructor() {
+	SemaRef.DeclareImplicitDestructor(ToPopulate);
+      }
 
   CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
