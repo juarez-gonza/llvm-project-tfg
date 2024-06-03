@@ -11981,7 +11981,7 @@ private:
     auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
     auto MethodType = ReqToMethodType(CompoundReq);
     auto *Method =
-        static_cast<CRTP *>(this)->CreateMethod(CompoundReq, MethodType);
+        static_cast<CRTP *>(this)->DefineMethod(CompoundReq, MethodType);
     return Method;
   }
 
@@ -12043,7 +12043,7 @@ public:
     SemaRef.DefineVirtualConceptDestructor(ToPopulate);
   }
 
-  CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
+  CXXMethodDecl *DefineMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
     auto *CallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto *Callee = CallExp->getCallee();
@@ -12173,7 +12173,7 @@ public:
     SemaRef.AddOverriddenMethods(ToPopulate, ToPopulate->getDestructor());
   }
 
-  CXXMethodDecl *CreateMethod(concepts::ExprRequirement *CompoundReq,
+  CXXMethodDecl *DefineMethod(concepts::ExprRequirement *CompoundReq,
                               QualType MethodType) {
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
