@@ -1,6 +1,6 @@
 //#include <iostream>
 // #include <string>
-//#include <stdio.h>
+#include <stdio.h>
 //#include <memory>
 
 /*
@@ -44,6 +44,18 @@ concept Unusable = requires(T x, int y) {
 
 int use(char x) {
   return x;
+}
+
+struct Asd {
+private:
+int m;
+public:
+explicit Asd(int x = 1) : m{1} {}
+};
+
+int use(Asd x) {
+  puts("Asd\n");
+  return 0;
 }
 
 /*
@@ -107,7 +119,8 @@ struct asdasd : public asd {
 
 int main() {
   Usable virtual c('a');
+  Usable virtual d(Asd{1});
   //use_usable_ptr(ptr<Usable virtual>(&c));
-  //use_usable(&c);
+  use_usable(&d);
   return 0;
 }

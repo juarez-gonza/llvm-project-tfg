@@ -12213,8 +12213,10 @@ public:
         auto *DRE = new (SemaRef.Context)
             DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
                         SourceLocation());
+
+	CastKind CK = Arg->getType()->getAsCXXRecordDecl() != nullptr ? CK_NoOp : CK_LValueToRValue;
         Args.push_back(ImplicitCastExpr::Create(
-            SemaRef.Context, Arg->getType(), CK_LValueToRValue, DRE,
+            SemaRef.Context, Arg->getType(), CK, DRE,
             nullptr, VK_PRValue, FPOptionsOverride()));
       } else {
         auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
@@ -12223,9 +12225,10 @@ public:
             SemaRef.Context, ThisExp, true, SourceLocation(), {},
             SourceLocation(), DataField,
             DeclAccessPair::make(DataField, AS_public), {}, {},
-            DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
+					     DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
+	CastKind CK = UnderlyingType->getAsCXXRecordDecl() != nullptr ? CK_NoOp : CK_LValueToRValue;
         Args.push_back(ImplicitCastExpr::Create(
-            SemaRef.Context, MemberExp->getType(), CK_LValueToRValue, MemberExp,
+            SemaRef.Context, MemberExp->getType(), CK, MemberExp,
             nullptr, VK_PRValue, FPOptionsOverride()));
       }
     Method->setParams(Params);
