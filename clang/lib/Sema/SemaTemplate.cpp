@@ -11814,7 +11814,7 @@ namespace impl {
 const char *virtual_concept_prefix = "_tfg_virtual_";
 } // namespace impl
 
-std::string ToVirtualConceptBaseName(ConceptDecl *Concept) {
+std::string ToVirtualConceptBaseName(const ConceptDecl *Concept) {
   return impl::virtual_concept_prefix + Concept->getDeclName().getAsString();
 }
 
@@ -11824,7 +11824,7 @@ std::string ToVirtualConceptDerivedName(std::string VCBaseName,
          QualType(UnderlyingType, 0).getAsString();
 }
 
-std::string ToVirtualConceptDerivedName(ConceptDecl *Concept,
+std::string ToVirtualConceptDerivedName(const ConceptDecl *Concept,
                                         const Type *UnderlyingType) {
   return ToVirtualConceptDerivedName(ToVirtualConceptBaseName(Concept),
                                      UnderlyingType);
@@ -11955,10 +11955,12 @@ public:
                              CXXRecordDecl *ToPopulate)
       : SemaRef(SemaRef), Concept{Concept}, ToPopulate{ToPopulate} {}
 
-  void operator()() {
-    static_cast<CRTP *>(this)->DefineConstructor();
+  bool operator()() {
+    if (!static_cast<CRTP *>(this)->DefineConstructor())
+      return false;
 
-    this->TraverseDecl(Concept);
+    if (!this->TraverseDecl(Concept))
+      return false;
     // Mark the class as implicit - not written in code - (see
     // ASTContext::buildImplicitRecord)
     ToPopulate->setImplicit();
@@ -11966,23 +11968,25 @@ public:
         const_cast<ASTContext &>(SemaRef.Context),
         TypeVisibilityAttr::Default));
 
-    static_cast<CRTP *>(this)->DefineDestructor();
+    if (!static_cast<CRTP *>(this)->DefineDestructor())
+      return false;
+
+    return true;
   }
 
   bool VisitRequiresExpr(const RequiresExpr *E) {
     ArrayRef<concepts::Requirement *> Reqs = E->getRequirements();
     for (auto *Req : Reqs)
-      AddMethodFromReq(Req);
+      if (!AddMethodFromReq(Req))
+        return false;
     return true;
   }
 
 private:
-  CXXMethodDecl *AddMethodFromReq(concepts::Requirement *Req) {
+  bool AddMethodFromReq(concepts::Requirement *Req) {
     auto *CompoundReq = cast<concepts::ExprRequirement>(Req);
     auto MethodType = ReqToMethodType(CompoundReq);
-    auto *Method =
-        static_cast<CRTP *>(this)->DefineMethod(CompoundReq, MethodType);
-    return Method;
+    return static_cast<CRTP *>(this)->DefineMethod(CompoundReq, MethodType);
   }
 
   QualType ReqToMethodType(concepts::ExprRequirement *CompoundReq) {
@@ -12010,7 +12014,8 @@ private:
   }
 
 protected:
-  SmallVector<ParmVarDecl *> buildParmVarDeclsFromMethodDecl(CXXMethodDecl *Method) {
+  SmallVector<ParmVarDecl *>
+  buildParmVarDeclsFromMethodDecl(CXXMethodDecl *Method) {
     SmallVector<ParmVarDecl *> Params;
     for (auto Arg : Method->getType()
                         .getTypePtr()
@@ -12035,19 +12040,22 @@ class PopulateVirtualConceptBase
 public:
   using PopulateVirtualConceptCRTP::PopulateVirtualConceptCRTP;
 
-  void DefineConstructor() {
+  bool DefineConstructor() {
     // No need to do anything for the constructor of the virtual base
+    return true;
   }
 
-  void DefineDestructor() {
+  bool DefineDestructor() {
     SemaRef.DefineVirtualConceptDestructor(ToPopulate);
+    return true;
   }
 
-  CXXMethodDecl *DefineMethod(concepts::ExprRequirement *CompoundReq,
-                              QualType MethodType) {
+  bool DefineMethod(concepts::ExprRequirement *CompoundReq,
+                    QualType MethodType) {
     auto *CallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto *Callee = CallExp->getCallee();
-    auto MethodName = std::string{impl::virtual_concept_prefix} + getCalleeName(SemaRef, CallExp);
+    auto MethodName = std::string{impl::virtual_concept_prefix} +
+                      getCalleeName(SemaRef, CallExp);
 
     // Create the method
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
@@ -12073,24 +12081,24 @@ public:
 
     // NOTE: Call PushOnScopeChains?
 
-    return Method;
+    return true;
   }
 }; // PopulateVirtualConceptBase
 } // namespace impl
 
 static constexpr inline auto populateVirtualConceptBase =
-    [](Sema &SemaRef, ConceptDecl *Concept, CXXRecordDecl *Base) {
-      assert(isConceptVirtualizable(SemaRef, Concept) &&
-             "Cannot populate a non-virtualizable concept");
-      tfg::impl::PopulateVirtualConceptBase{SemaRef, Concept, Base}();
-    };
+    [](Sema &SemaRef, ConceptDecl *Concept, CXXRecordDecl *Base) -> bool {
+  assert(isConceptVirtualizable(SemaRef, Concept) &&
+         "Cannot populate a non-virtualizable concept");
+  return tfg::impl::PopulateVirtualConceptBase{SemaRef, Concept, Base}();
+};
 
 namespace impl {
 class PopulateVirtualConceptDerived
     : public PopulateVirtualConceptCRTP<PopulateVirtualConceptDerived> {
   CXXRecordDecl *Base;
-      QualType UnderlyingType;
-      FieldDecl *DataField = nullptr;
+  QualType UnderlyingType;
+  FieldDecl *DataField = nullptr;
 
 public:
   PopulateVirtualConceptDerived(Sema &SemaRef, ConceptDecl *Concept,
@@ -12099,7 +12107,7 @@ public:
       : PopulateVirtualConceptCRTP(SemaRef, Concept, Derived), Base{Base},
         UnderlyingType{QualType(UnderlyingType, 0)} {}
 
-  void DefineConstructor() {
+  bool DefineConstructor() {
     auto ClassLoc = ToPopulate->getLocation();
 
     IdentifierInfo &DataFieldII =
@@ -12166,19 +12174,22 @@ public:
     if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor,
                                           nullptr))
       SemaRef.SetDeclDeleted(Ctor, ClassLoc);
+    return true;
   }
 
-  void DefineDestructor() {
+  bool DefineDestructor() {
     SemaRef.AddImplicitlyDeclaredMembersToClass(ToPopulate);
     SemaRef.AddOverriddenMethods(ToPopulate, ToPopulate->getDestructor());
+    return true;
   }
 
-  CXXMethodDecl *DefineMethod(concepts::ExprRequirement *CompoundReq,
-                              QualType MethodType) {
+  bool DefineMethod(concepts::ExprRequirement *CompoundReq,
+                    QualType MethodType) {
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
     auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
-    auto ReqCallExpArgs = ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
+    auto ReqCallExpArgs =
+        ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
     std::string CalleeName = getCalleeName(SemaRef, ReqCallExp);
 
     auto MethodName = impl::virtual_concept_prefix + CalleeName;
@@ -12187,7 +12198,8 @@ public:
     // Create the method
     CXXMethodDecl *Method = CXXMethodDecl::Create(
         SemaRef.Context, ToPopulate, ReqCallExp->getExprLoc(),
-        DeclarationNameInfo((DeclarationName(&MethodII)), ReqCallExp->getExprLoc()),
+        DeclarationNameInfo((DeclarationName(&MethodII)),
+                            ReqCallExp->getExprLoc()),
         MethodType,
         /*Tinfo=*/nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(),
@@ -12196,7 +12208,8 @@ public:
 
     // Attach params and create call args
     SmallVector<ParmVarDecl *> Params = buildParmVarDeclsFromMethodDecl(Method);
-    SmallVector<Expr *> Args = buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
+    SmallVector<Expr *> Args =
+        buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
     Method->setParams(Params);
 
     // Set public
@@ -12204,12 +12217,14 @@ public:
 
     // Add method to decl (TODO: should push on scope chains)
     ToPopulate->addDecl(Method);
-    // Set method as an override of the method in the virtual concept's base class
+    // Set method as an override of the method in the virtual concept's base
+    // class
     SemaRef.AddOverriddenMethods(ToPopulate, Method);
 
     // Define method's body
 
-    FunctionDecl *FD = lookupFunctionDeclOnUnderlyingType(CalleeName, ReqCallExpArgs);
+    FunctionDecl *FD =
+        lookupFunctionDeclOnUnderlyingType(CalleeName, ReqCallExpArgs);
     const auto *FDType = FD->getType()->castAs<FunctionType>();
     auto FDQType = QualType(FDType, 0);
 
@@ -12236,7 +12251,7 @@ public:
     auto *Body = CompoundStmt::Create(SemaRef.Context, {RetStmt}, {}, {}, {});
     Method->setBody(Body);
 
-    return Method;
+    return true;
   }
 
   SmallVector<Expr *>
@@ -12248,8 +12263,8 @@ public:
     auto Map = [this, Method, Params, &ParamIdx](Expr *Arg) mutable {
       if (!hasInstantiationDependentType(
               Arg)) { // the instantiation dependent arg is `this` pointer
-        // Expr in Args
-	auto *P = Params[ParamIdx++];
+                      // Expr in Args
+        auto *P = Params[ParamIdx++];
         auto *DRE = new (SemaRef.Context)
             DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
                         SourceLocation());
@@ -12258,10 +12273,10 @@ public:
                           ? CK_NoOp
                           : CK_LValueToRValue;
 
-        auto *ICE = ImplicitCastExpr::Create(SemaRef.Context, Arg->getType(),
-                                             CK, DRE, nullptr, VK_PRValue,
-                                             FPOptionsOverride());
-	return ICE;
+        auto *ICE =
+            ImplicitCastExpr::Create(SemaRef.Context, Arg->getType(), CK, DRE,
+                                     nullptr, VK_PRValue, FPOptionsOverride());
+        return ICE;
       }
 
       auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
@@ -12289,7 +12304,9 @@ public:
     return Args;
   }
 
-  FunctionDecl *lookupFunctionDeclOnUnderlyingType(std::string CalleeName, ArrayRef<Expr*> CallExpArgs) {
+  FunctionDecl *
+  lookupFunctionDeclOnUnderlyingType(std::string CalleeName,
+                                     ArrayRef<Expr *> CallExpArgs) {
     auto &FunctionII = SemaRef.Context.Idents.get(std::move(CalleeName));
     LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
                         Sema::LookupOrdinaryName);
@@ -12351,8 +12368,8 @@ public:
     } // end of lookupFilter scope
 
     if (!lookup.isSingleResult()) {
-      // TODO: handle this failure
-      // failed to reduce lookup hits to a single function
+      // NOTE: can this failure even happen? At this point the
+      // concept has already been checked for the UnderlyingType
       return nullptr;
     }
 
@@ -12363,9 +12380,10 @@ public:
 
 static constexpr inline auto populateVirtualConceptDerived =
     [](Sema &SemaRef, ConceptDecl *Concept, CXXRecordDecl *Base,
-       CXXRecordDecl *Derived, const Type *UnderlyingType) {
-      impl::PopulateVirtualConceptDerived{SemaRef, Concept, Base, Derived, UnderlyingType}();
-    };
+       CXXRecordDecl *Derived, const Type *UnderlyingType) -> bool {
+  return impl::PopulateVirtualConceptDerived{SemaRef, Concept, Base, Derived,
+                                             UnderlyingType}();
+};
 
 } // namespace tfg
 
@@ -12390,7 +12408,11 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
       &Context.Idents.get(tfg::ToVirtualConceptBaseName(D)));
 
   // Populate with methods
-  tfg::populateVirtualConceptBase(*this, D, Base);
+  if (!tfg::populateVirtualConceptBase(*this, D, Base))
+    // Since we already checked if this concept is virtualizable, this
+    // conditional should never be taken Consider it a bug if it ever
+    // happens
+    return nullptr;
 
   // Finish base class definition
   Base->completeDefinition();
@@ -12402,6 +12424,7 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
 CXXRecordDecl *
 Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                           const Type *UnderlyingType) {
+  // Precondition: at this point the concept has already been checked on the UnderlyingType
   assert(UnderlyingType != nullptr && Concept != nullptr &&
          "UnderlyingType and Concept must be non null");
 
@@ -12410,7 +12433,9 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   // then fail altogether
 
   auto BaseT = findOrInstantiateVirtualConceptBase(Concept);
-  if (BaseT.isNull()) // Base not found nor instantiated, fail
+  if (BaseT.isNull()) // Base not found or failed to be instantiated, fail.
+    // AFAIK, this is the only reason this should fail since the
+    // Concept on the UnderlyingType has already been checked
     return nullptr;
 
   // TODO: check if this work for non built-in types
@@ -12445,9 +12470,13 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   ActOnBaseSpecifiers(Derived, {BaseSpecifier});
 
   // Populate with methods
-  tfg::populateVirtualConceptDerived(*this, Concept,
-                                     BaseT.getTypePtr()->getAsCXXRecordDecl(),
-                                     Derived, UnderlyingType);
+  if (!tfg::populateVirtualConceptDerived(
+          *this, Concept, BaseT.getTypePtr()->getAsCXXRecordDecl(), Derived,
+					  UnderlyingType))
+    // This should fail since the Concept has already been checked on
+    // the underlying type, if this conditional ever gets executed it's
+    // probably a bug to me
+    return nullptr;
 
   // Finish class definition
   Derived->completeDefinition();
@@ -12512,6 +12541,10 @@ QualType Sema::getVirtualConceptDerived(ConceptDecl *Concept,
 }
 
 QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
+  // NOTE: diagnostic is done at call site
+  // AFAIK, this should return a nulled QualType only if the actual
+  // concept is not virtualizable.  Everything else is a bug or
+  // something not initially considered
   auto VCType = getVirtualConceptBase(Concept);
   if (VCType.isNull()) {
     // virtual concept's base not found, try to instantiate it or fail
@@ -12526,6 +12559,12 @@ QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
 QualType
 Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                              const Type *UnderlyingType) {
+  // Precondition: at this point the concept has already been checked on the UnderlyingType
+  // NOTE: diagnostic is done at call site
+  // AFAIK, this should return a nulled QualType only if the actual
+  // concept is not virtualizable.  Everything else is a bug or
+  // something not initially considered
+  assert(Concept != nullptr && UnderlyingType != nullptr);
   auto VCType = getVirtualConceptDerived(Concept, UnderlyingType);
   if (VCType.isNull()) {
     // virtual concept's derived type for underlying type not found, try to

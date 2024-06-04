@@ -5152,6 +5152,8 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
                                         ConceptDecl *Concept) {
   // Find the underlying type of the deduced concept
+  // Precondition: at this point the concept has already been checked on the UnderlyingType
+  assert(Concept != nullptr);
 
   // TODO: use some actual pattern matching or something instead of checking for
   // a pointer depth of 1. See how auto or typename T do deduction on auto*
@@ -5161,7 +5163,16 @@ QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
       : DeducedType.getTypePtr();
 
   auto VCDerivedType = findOrInstantiateVirtualConceptDerived(
-      Concept, UnqualifiedUnderlyingType);
+							      Concept, UnqualifiedUnderlyingType);
+  if (VCDerivedType.isNull()) {
+    // Report Diagnose failure to instantiate virtual concept. Since the concept
+    // has already been checked on the underlying type at this point, the only
+    // reason I can think of would be that the actual concept is not
+    // virtualizable
+    Diag(Concept->getLocation(), diag::err_concept_not_virtualizable)
+        << Concept->getDeclName();
+    return {};
+  }
 
   // Return the adequate virtual concept's derived class (add pointer
   // if necessary, modify when the TODO for using actual pattern
@@ -5183,8 +5194,12 @@ TypeResult Sema::setVirtualConceptDeclSpec(DeclSpec &DS) {
   TemplateName TN = TempId->Template.get();
   ConceptDecl *Concept = dyn_cast<ConceptDecl>(TN.getAsTemplateDecl());
   auto VCType = findOrInstantiateVirtualConceptBase(Concept);
-  if (VCType.isNull()) // Failed to find or instantiate
+  if (VCType.isNull()) {
+    // Failed to find or instantiate
+    Diag(Concept->getLocation(), diag::err_concept_not_virtualizable)
+        << Concept->getDeclName();
     return true;
+  }
 
   auto VCTypeRep = ParsedType::make(VCType);
   { // Reset DeclSpec to that of a type (since the virtual concept base is just
