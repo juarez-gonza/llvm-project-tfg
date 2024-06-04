@@ -12015,7 +12015,7 @@ private:
 
 protected:
   SmallVector<ParmVarDecl *>
-  buildParmVarDeclsFromMethodDecl(CXXMethodDecl *Method) {
+  buildMethodParmVarDeclsFromMethodDecl(CXXMethodDecl *Method) {
     SmallVector<ParmVarDecl *> Params;
     for (auto Arg : Method->getType()
                         .getTypePtr()
@@ -12052,10 +12052,12 @@ public:
 
   bool DefineMethod(concepts::ExprRequirement *CompoundReq,
                     QualType MethodType) {
+    assert(CompoundReq != nullptr && !MethodType.isNull());
     auto *CallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto *Callee = CallExp->getCallee();
-    auto MethodName = std::string{impl::virtual_concept_prefix} +
-                      getCalleeName(SemaRef, CallExp);
+    auto CalleeName = getCalleeName(SemaRef, CallExp);
+    auto MethodName = std::string{impl::virtual_concept_prefix} + CalleeName;
+
 
     // Create the method
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
@@ -12067,7 +12069,7 @@ public:
         SemaRef.getCurFPFeatures().isFPConstrained(),
         /*isInline=*/true, ConstexprSpecKind::Unspecified, SourceLocation(),
         /*TrailingRequiresClause=*/nullptr);
-    Method->setParams(buildParmVarDeclsFromMethodDecl(Method));
+    Method->setParams(buildMethodParmVarDeclsFromMethodDecl(Method));
 
     // Set public, virtual and check that I haven't screwed up while doing so
     Method->setAccess(AS_public);
@@ -12081,7 +12083,63 @@ public:
 
     // NOTE: Call PushOnScopeChains?
 
+    // On another chapter of things that wouldn't be necessary with
+    // UFCS: Create friend function to allow calling as a free
+    // function (NOTE: this is only needed when the callee is a free
+    // function in the compound requirement of the concept)
+
+    QualType FriendFunctionType = friendTypeFromReq(Method, CompoundReq);
+    auto &FriendFunctionII = SemaRef.Context.Idents.get(CalleeName);
+    DeclarationNameInfo FriendFunctionNameInfo{
+      DeclarationName(&FriendFunctionII), Method->getBeginLoc()};
+    // Friend Function "leaks" out of the class declcontext, into its parent declcontext
+    FunctionDecl *FriendFunction = FunctionDecl::Create(
+        SemaRef.Context, ToPopulate->getParent(), Method->getBeginLoc(),
+        FriendFunctionNameInfo, FriendFunctionType, nullptr, SC_None,
+        SemaRef.getCurFPFeatures().isFPConstrained(), true, false,
+        ConstexprSpecKind::Unspecified,
+							/*TrailingRequiresClause=*/nullptr);
+
+    // TODO:
+    // - Check how to properly assign declcontext to friend function
+    // - Create body of function
+
+    FriendDecl *FrD = FriendDecl::Create(
+        SemaRef.Context, ToPopulate, FriendFunction->getBeginLoc(),
+        FriendFunction, FriendFunction->getBeginLoc());
+
+    FrD->setAccess(AS_public);
+    ToPopulate->addDecl(FrD);
+
     return true;
+  }
+
+  QualType friendTypeFromReq(const CXXMethodDecl *Method,
+                             const concepts::ExprRequirement *CompoundReq) {
+    assert(Method != nullptr && CompoundReq != nullptr);
+    auto *Call = cast<CallExpr>(CompoundReq->getExpr());
+    auto ArgTypes = SmallVector<QualType>{Call->getNumArgs() - 1};
+    auto CallExpArgs = ArrayRef{Call->getArgs(), Call->getNumArgs()};
+    std::transform(
+        CallExpArgs.begin(), CallExpArgs.end(), std::back_inserter(ArgTypes),
+        [this, Method](decltype(*CallExpArgs.begin()) A) -> QualType {
+          return !hasInstantiationDependentType(A)
+                     ? A->getType()
+                     : SemaRef.Context.getLValueReferenceType(
+                           Method->getThisType()
+                               .getTypePtr()
+                               ->getPointeeType());
+        });
+
+    // Get return type constraint
+    const auto *ReturnTypeInfo =
+        CompoundReq->getReturnTypeRequirement().getReturnTypeSourceInfo();
+
+    // Use noexcept if specified and create friend function prototype
+    auto EPI = FunctionProtoType::ExtProtoInfo{}.withExceptionSpec(
+        {CompoundReq->hasNoexceptRequirement() ? EST_BasicNoexcept : EST_None});
+    return SemaRef.Context.getFunctionType(ReturnTypeInfo->getType(), ArgTypes,
+                                           EPI);
   }
 }; // PopulateVirtualConceptBase
 } // namespace impl
@@ -12185,6 +12243,7 @@ public:
 
   bool DefineMethod(concepts::ExprRequirement *CompoundReq,
                     QualType MethodType) {
+    assert(CompoundReq != nullptr && !MethodType.isNull());
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
     auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
@@ -12207,7 +12266,7 @@ public:
         /*TrailingRequiresClause=*/nullptr);
 
     // Attach params and create call args
-    SmallVector<ParmVarDecl *> Params = buildParmVarDeclsFromMethodDecl(Method);
+    SmallVector<ParmVarDecl *> Params = buildMethodParmVarDeclsFromMethodDecl(Method);
     SmallVector<Expr *> Args =
         buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
     Method->setParams(Params);
@@ -12415,7 +12474,7 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   // Populate with methods
   if (!tfg::populateVirtualConceptBase(*this, D, Base))
     // Since we already checked if this concept is virtualizable, this
-    // conditional should never be taken Consider it a bug if it ever
+    // conditional should never be taken. Consider it a bug if it ever
     // happens
     return nullptr;
 
