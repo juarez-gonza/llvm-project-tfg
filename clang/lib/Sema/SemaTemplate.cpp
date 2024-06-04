@@ -12403,9 +12403,14 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   // sort of like enum members do. Get the parent scope of the concept
   // definition
   Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
-  auto *Base = CXXRecordDecl::CreateVirtualConceptBase(
-      Context, BaseParentScope->getEntity(), D->getBeginLoc(),
-      &Context.Idents.get(tfg::ToVirtualConceptBaseName(D)));
+
+  auto *DC = BaseParentScope->getEntity();
+  auto *BaseII = &Context.Idents.get(tfg::ToVirtualConceptBaseName(D));
+  auto *Base =
+      CXXRecordDecl::Create(Context, TagTypeKind::Class, DC, D->getLocation(),
+                            D->getLocation(), BaseII);
+  Base->startDefinition();
+  Base->setImplicit(true);
 
   // Populate with methods
   if (!tfg::populateVirtualConceptBase(*this, D, Base))
@@ -12418,13 +12423,17 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   Base->completeDefinition();
   CheckCompletedCXXClass(BaseParentScope, Base);
 
+  // Add Base to Concept's DeclContext
+  DC->addDecl(Base);
+
   return Base;
 }
 
 CXXRecordDecl *
 Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                           const Type *UnderlyingType) {
-  // Precondition: at this point the concept has already been checked on the UnderlyingType
+  // Precondition: at this point the concept has already been checked on the
+  // UnderlyingType
   assert(UnderlyingType != nullptr && Concept != nullptr &&
          "UnderlyingType and Concept must be non null");
 
@@ -12455,8 +12464,8 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
 
   // Create Type
   auto *DC = DerivedScope->getEntity();
-  auto* DerivedII = &Context.Idents.get(tfg::ToVirtualConceptDerivedName(
-									 Concept, UnderlyingType));
+  auto *DerivedII = &Context.Idents.get(
+      tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType));
 
   auto *Derived =
       CXXRecordDecl::Create(Context, TagTypeKind::Class, DC, SourceLocation(),
@@ -12472,7 +12481,7 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   // Populate with methods
   if (!tfg::populateVirtualConceptDerived(
           *this, Concept, BaseT.getTypePtr()->getAsCXXRecordDecl(), Derived,
-					  UnderlyingType))
+          UnderlyingType))
     // This should fail since the Concept has already been checked on
     // the underlying type, if this conditional ever gets executed it's
     // probably a bug to me
@@ -12482,7 +12491,7 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
   Derived->completeDefinition();
   CheckCompletedCXXClass(DerivedScope, Derived);
 
-  // Add Derived to DC
+  // Add Derived to UnderlyingType's declcontext
   DC->addDecl(Derived);
 
   return Derived;

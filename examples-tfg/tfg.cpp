@@ -68,6 +68,7 @@ concept Usable = requires(T x) {
 };
 
 void use_usable(Usable virtual *x) {
+  // use(*x)
   x->_tfg_virtual_use();
 }
 
