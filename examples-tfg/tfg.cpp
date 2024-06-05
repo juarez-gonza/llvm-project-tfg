@@ -69,25 +69,28 @@ concept Usable = requires(T x) {
 
 void use_usable(Usable virtual *x) {
   use(*x);
-  //x->_tfg_virtual_use();
 }
 
-//template <typename T>
-//struct ptr {
-//  T* x;
-//  T* operator->() {
-//    return x;
-//  }
-//};
-//
-//void use_usable_ptr(ptr<Usable virtual> x) {
-//  x->_tfg_virtual_use();
-//}
+template <typename T>
+struct ptr {
+  T* x;
+  T* operator->() {
+    return x;
+  }
+
+  T& operator*() {
+    return *x;
+  }
+};
+
+void use_usable_ptr(ptr<Usable virtual> x) {
+  use(*x);
+}
 
 int main() {
   Usable virtual c('a');
   Usable virtual d(Asd{1});
-  //use_usable_ptr(ptr<Usable virtual>(&c));
+  use_usable_ptr(ptr<Usable virtual>(&c));
   use_usable(&d);
   use_usable(&c);
   return 0;
