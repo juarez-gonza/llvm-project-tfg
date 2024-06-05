@@ -12058,7 +12058,6 @@ public:
     auto CalleeName = getCalleeName(SemaRef, CallExp);
     auto MethodName = std::string{impl::virtual_concept_prefix} + CalleeName;
 
-
     // Create the method
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
     CXXMethodDecl *Method = CXXMethodDecl::Create(
@@ -12088,30 +12087,75 @@ public:
     // function (NOTE: this is only needed when the callee is a free
     // function in the compound requirement of the concept)
 
+    // Create Function Decl.
+
+    // NOTE: Notice that the lexical context of the FunctionDecl is
+    // the same as the FriendDecl lexical and semantic context,
+    // however the semantic context of the FunctionDecl is the class'
+    // semantic context/lexical context. This is because the actual
+    // FunctionDecl semantically "leaks" into the DeclContext of the
+    // class.
+
     QualType FriendFunctionType = friendTypeFromReq(Method, CompoundReq);
     auto &FriendFunctionII = SemaRef.Context.Idents.get(CalleeName);
     DeclarationNameInfo FriendFunctionNameInfo{
-      DeclarationName(&FriendFunctionII), Method->getBeginLoc()};
-    // Friend Function "leaks" out of the class declcontext, into its parent declcontext
+        DeclarationName(&FriendFunctionII), Method->getBeginLoc()};
     FunctionDecl *FriendFunction = FunctionDecl::Create(
         SemaRef.Context, ToPopulate->getDeclContext(), Method->getBeginLoc(),
         FriendFunctionNameInfo, FriendFunctionType, nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(), true, false,
         ConstexprSpecKind::Unspecified,
-							/*TrailingRequiresClause=*/nullptr);
+        /*TrailingRequiresClause=*/nullptr);
     FriendFunction->setLexicalDeclContext(ToPopulate);
-    FriendFunction->setObjectOfFriendDecl();
+    FriendFunction->setParams(
+        buildFriendParmVarDeclsFromFunctionDecl(FriendFunction));
     FriendFunction->setAccess(AS_public);
-    // TODO: Create proper body for friend function
-    auto *FriendFunctionBody = CompoundStmt::CreateEmpty(SemaRef.Context, {}, {});
+
+    // Find cannot return nullptr because of how we built the params and type of
+    // FriendFunction
+    auto ThisRefType = SemaRef.Context.getLValueReferenceType(
+        Method->getThisType().getTypePtr()->getPointeeType());
+    auto *VCParm = *std::find_if(
+        FriendFunction->param_begin(), FriendFunction->param_end(),
+        [this, ThisRefType](ParmVarDecl *P) {
+          return SemaRef.Context.hasSameUnqualifiedType(P->getType(),
+                                                        ThisRefType);
+        });
+    auto *VCDRE = new (SemaRef.Context)
+        DeclRefExpr(SemaRef.Context, VCParm, false, Method->getThisType(),
+                    VK_LValue, FriendFunction->getLocation());
+
+    // Get DREs for all params
+    SmallVector<Expr *> ParamsDRE;
+    for (auto *P : FriendFunction->parameters())
+      if (!SemaRef.Context.hasSameUnqualifiedType(P->getType(), ThisRefType))
+        ParamsDRE.push_back(new (SemaRef.Context) DeclRefExpr(
+            SemaRef.Context, P, false, P->getType(), VK_LValue,
+							      FriendFunction->getLocation()));
+
+    auto *MemberExp = SemaRef.BuildMemberExpr(
+        VCDRE, /*IsArrow=*/false, SourceLocation(), NestedNameSpecifierLoc(),
+        SourceLocation(), Method,
+        DeclAccessPair::make(Method, Method->getAccess()), false,
+        DeclarationNameInfo(), SemaRef.Context.BoundMemberTy, VK_PRValue,
+        OK_Ordinary);
+
+    auto *MembCallExp = CXXMemberCallExpr::Create(
+        SemaRef.Context, MemberExp, ParamsDRE, Method->getCallResultType(),
+						  VK_LValue, FriendFunction->getBeginLoc(), SemaRef.getCurFPFeatures());
+
+    auto *FriendFunctionRetStmt = ReturnStmt::Create(
+        SemaRef.Context, SourceLocation(), MembCallExp, nullptr);
+
+    auto *FriendFunctionBody = CompoundStmt::Create(
+        SemaRef.Context, {FriendFunctionRetStmt}, {}, {}, {});
     FriendFunction->setBody(FriendFunctionBody);
     FriendFunction->setWillHaveBody(false);
 
-    // Create FriendDecl for function (notice that the lexical context
-    // of the function declaration is the same as the friend
-    // declaration lexical and semantic context, however the semantic
-    // context of the function declaration is the class' semantic
-    // context/lexical context)
+    // State that this function is going to correspond to a FriendDecl
+    FriendFunction->setObjectOfFriendDecl();
+
+    // Create FriendDecl for function
     FriendDecl *FrD = FriendDecl::Create(
         SemaRef.Context, ToPopulate, FriendFunction->getBeginLoc(),
         FriendFunction, FriendFunction->getBeginLoc());
@@ -12148,6 +12192,28 @@ public:
         {CompoundReq->hasNoexceptRequirement() ? EST_BasicNoexcept : EST_None});
     return SemaRef.Context.getFunctionType(ReturnTypeInfo->getType(), ArgTypes,
                                            EPI);
+  }
+
+  SmallVector<ParmVarDecl *>
+  buildFriendParmVarDeclsFromFunctionDecl(FunctionDecl *FriendFunction) {
+    SmallVector<ParmVarDecl *> Params;
+    auto ParamTypes = FriendFunction->getType()
+                          .getTypePtr()
+                          ->getAs<FunctionProtoType>()
+                          ->getParamTypes();
+    std::transform(
+        ParamTypes.begin(), ParamTypes.end(), std::back_inserter(Params),
+        [this, FriendFunction](decltype(*ParamTypes.begin()) Arg) {
+          auto *P = ParmVarDecl::Create(
+              SemaRef.Context, FriendFunction, FriendFunction->getBeginLoc(),
+              FriendFunction->getBeginLoc(), nullptr, Arg,
+              SemaRef.Context.getTrivialTypeSourceInfo(
+                  Arg, FriendFunction->getBeginLoc()),
+              SC_None, nullptr);
+          P->setOwningFunction(FriendFunction);
+          return P;
+        });
+    return Params;
   }
 }; // PopulateVirtualConceptBase
 } // namespace impl
@@ -12274,7 +12340,8 @@ public:
         /*TrailingRequiresClause=*/nullptr);
 
     // Attach params and create call args
-    SmallVector<ParmVarDecl *> Params = buildMethodParmVarDeclsFromMethodDecl(Method);
+    SmallVector<ParmVarDecl *> Params =
+        buildMethodParmVarDeclsFromMethodDecl(Method);
     SmallVector<Expr *> Args =
         buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
     Method->setParams(Params);
@@ -12635,11 +12702,10 @@ QualType Sema::findOrInstantiateVirtualConceptBase(ConceptDecl *Concept) {
 QualType
 Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                              const Type *UnderlyingType) {
-  // Precondition: at this point the concept has already been checked on the UnderlyingType
-  // NOTE: diagnostic is done at call site
-  // AFAIK, this should return a nulled QualType only if the actual
-  // concept is not virtualizable.  Everything else is a bug or
-  // something not initially considered
+  // Precondition: at this point the concept has already been checked on the
+  // UnderlyingType NOTE: diagnostic is done at call site AFAIK, this should
+  // return a nulled QualType only if the actual concept is not virtualizable.
+  // Everything else is a bug or something not initially considered
   assert(Concept != nullptr && UnderlyingType != nullptr);
   auto VCType = getVirtualConceptDerived(Concept, UnderlyingType);
   if (VCType.isNull()) {
