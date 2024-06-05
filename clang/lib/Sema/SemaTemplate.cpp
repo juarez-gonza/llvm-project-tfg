@@ -12094,16 +12094,24 @@ public:
       DeclarationName(&FriendFunctionII), Method->getBeginLoc()};
     // Friend Function "leaks" out of the class declcontext, into its parent declcontext
     FunctionDecl *FriendFunction = FunctionDecl::Create(
-        SemaRef.Context, ToPopulate->getParent(), Method->getBeginLoc(),
+        SemaRef.Context, ToPopulate->getDeclContext(), Method->getBeginLoc(),
         FriendFunctionNameInfo, FriendFunctionType, nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(), true, false,
         ConstexprSpecKind::Unspecified,
 							/*TrailingRequiresClause=*/nullptr);
+    FriendFunction->setLexicalDeclContext(ToPopulate);
+    FriendFunction->setObjectOfFriendDecl();
+    FriendFunction->setAccess(AS_public);
+    // TODO: Create proper body for friend function
+    auto *FriendFunctionBody = CompoundStmt::CreateEmpty(SemaRef.Context, {}, {});
+    FriendFunction->setBody(FriendFunctionBody);
+    FriendFunction->setWillHaveBody(false);
 
-    // TODO:
-    // - Check how to properly assign declcontext to friend function
-    // - Create body of function
-
+    // Create FriendDecl for function (notice that the lexical context
+    // of the function declaration is the same as the friend
+    // declaration lexical and semantic context, however the semantic
+    // context of the function declaration is the class' semantic
+    // context/lexical context)
     FriendDecl *FrD = FriendDecl::Create(
         SemaRef.Context, ToPopulate, FriendFunction->getBeginLoc(),
         FriendFunction, FriendFunction->getBeginLoc());
