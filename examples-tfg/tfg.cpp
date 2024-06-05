@@ -1,6 +1,6 @@
 //#include <iostream>
 // #include <string>
-//#include <stdio.h>
+#include <stdio.h>
 //#include <memory>
 
 /*
@@ -48,17 +48,17 @@ int m;
 public:
 explicit Asd(int x = 1) : m{1} {}
 ~Asd() {
-  //puts("~Asd()\n");
+  puts("~Asd()\n");
 }
 };
 
 int use(Asd x) {
-  //puts("use Asd\n");
+  puts("use Asd\n");
   return 0;
 }
 
 int use(char x) {
-  //puts("use char\n");
+  puts("use char\n");
   return x;
 }
 

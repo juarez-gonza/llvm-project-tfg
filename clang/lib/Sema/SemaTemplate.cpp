@@ -12155,14 +12155,17 @@ public:
         DeclRefExpr(SemaRef.Context, VCParm, false,
                     Method->getThisType().getTypePtr()->getPointeeType(),
                     VK_LValue, FriendFunction->getLocation());
+    VCParm->markUsed(SemaRef.Context);
 
     // Get DREs for all params
     SmallVector<Expr *> ParamsDRE;
     for (auto *P : FriendFunction->parameters())
-      if (!SemaRef.Context.hasSameUnqualifiedType(P->getType(), ThisRefType))
+      if (!SemaRef.Context.hasSameUnqualifiedType(P->getType(), ThisRefType)) {
+	P->markUsed(SemaRef.Context);
         ParamsDRE.push_back(new (SemaRef.Context) DeclRefExpr(
             SemaRef.Context, P, false, P->getType(), VK_LValue,
 							      FriendFunction->getLocation()));
+      }
 
     auto *MemberExp = SemaRef.BuildMemberExpr(
         VCDRE, /*IsArrow=*/false, SourceLocation(), NestedNameSpecifierLoc(),
@@ -12194,30 +12197,6 @@ public:
 
     FrD->setAccess(AS_public);
     ToPopulate->addDecl(FrD);
-    //SemaRef.ActOnFinishInlineFunctionDef(FriendFunction);
-    //FriendFunction->getLexicalDeclContext()->addDecl(FriendFunction);
-    // SemaRef.MarkFunctionReferenced(FriendFunction->getLocation(), FriendFunction);
-
-    fprintf(
-        stderr,
-        "\n################### Friend DeclContext: %s #####################\n",
-        __func__);
-    FrD->getDeclContext()->dumpDeclContext();
-    fprintf(stderr,
-            "\n################### Friend Lexical DeclContext: %s "
-            "#####################\n",
-            __func__);
-    FrD->getLexicalDeclContext()->dumpDeclContext();
-    fprintf(stderr,
-            "\n################### Function DeclContext: %s "
-            "#####################\n",
-            __func__);
-    FriendFunction->getDeclContext()->dumpDeclContext();
-    fprintf(
-        stderr,
-        "\n################### Function Lexical: %s #####################\n",
-        __func__);
-    FriendFunction->getLexicalDeclContext()->dumpDeclContext();
 
     return true;
   }
