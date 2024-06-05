@@ -12089,27 +12089,57 @@ public:
 
     // Create Function Decl.
 
-    // NOTE: Notice that the lexical context of the FunctionDecl is
-    // the same as the FriendDecl lexical and semantic context,
-    // however the semantic context of the FunctionDecl is the class'
-    // semantic context/lexical context. This is because the actual
-    // FunctionDecl semantically "leaks" into the DeclContext of the
-    // class.
+    // From the Draft of june 2023: 11.8.4 Friends [class.friend]
+    //
+    // - A function first declared in a friend declaration has the
+    // linkage of the namespace of which it is a member ([basic.link]).
+    // Otherwise, the function retains its previous linkage ([dcl.stc]).
+    //
+    // - A function may be defined in a friend declaration of a class if
+    // and only if the class is a non-local class ([class.local]) and
+    // the function name is unqualified.
+    //
+    // - Such a function is implicitly an inline ([dcl.inline]) function
+    // if it is attached to the global module.  [Note 3: If a friend
+    // function is defined outside a class, it is not in the scope of the
+    // class.  — end note]
+    //
+    // - No storage-class-specifier shall appear in the decl-specifier-seq
+    // of a friend declaration.
+    //
+    // - A member nominated by a friend declaration shall be accessible in
+    // the class containing the friend declaration.  The meaning of the
+    // friend declaration is the same whether the friend declaration
+    // appears in the private, protected, or public ([class.mem]) portion
+    // of the class member-specification.
+
+    // For our particular case:
+    // Semantic DeclContext is the namespace that contains the enclosing class.
+    // Lexical DeclContext is the class itself
+    DeclContext* FriendFunctionLexDC = ToPopulate;
+    DeclContext* FriendFunctionSemaDC = ToPopulate->getDeclContext();
 
     QualType FriendFunctionType = friendTypeFromReq(Method, CompoundReq);
     auto &FriendFunctionII = SemaRef.Context.Idents.get(CalleeName);
     DeclarationNameInfo FriendFunctionNameInfo{
         DeclarationName(&FriendFunctionII), Method->getBeginLoc()};
     FunctionDecl *FriendFunction = FunctionDecl::Create(
-        SemaRef.Context, ToPopulate->getDeclContext(), Method->getBeginLoc(),
+        SemaRef.Context, FriendFunctionSemaDC, Method->getBeginLoc(),
         FriendFunctionNameInfo, FriendFunctionType, nullptr, SC_None,
         SemaRef.getCurFPFeatures().isFPConstrained(), true, false,
         ConstexprSpecKind::Unspecified,
         /*TrailingRequiresClause=*/nullptr);
-    FriendFunction->setLexicalDeclContext(ToPopulate);
+    FriendFunction->setLexicalDeclContext(FriendFunctionLexDC);
+
+    // Make the function visible in the semantic DeclContext
+    FriendFunctionSemaDC->makeDeclVisibleInContext(FriendFunction);
+    FriendFunction->setAccess(AS_public);
+
+    // Set params
     FriendFunction->setParams(
         buildFriendParmVarDeclsFromFunctionDecl(FriendFunction));
-    FriendFunction->setAccess(AS_public);
+
+    // Some boilerplate for function body definition
 
     // Find cannot return nullptr because of how we built the params and type of
     // FriendFunction
@@ -12122,7 +12152,8 @@ public:
                                                         ThisRefType);
         });
     auto *VCDRE = new (SemaRef.Context)
-        DeclRefExpr(SemaRef.Context, VCParm, false, Method->getThisType(),
+        DeclRefExpr(SemaRef.Context, VCParm, false,
+                    Method->getThisType().getTypePtr()->getPointeeType(),
                     VK_LValue, FriendFunction->getLocation());
 
     // Get DREs for all params
@@ -12151,17 +12182,42 @@ public:
         SemaRef.Context, {FriendFunctionRetStmt}, {}, {}, {});
     FriendFunction->setBody(FriendFunctionBody);
     FriendFunction->setWillHaveBody(false);
+    FriendFunction->setImplicitlyInline();
 
     // State that this function is going to correspond to a FriendDecl
     FriendFunction->setObjectOfFriendDecl();
 
     // Create FriendDecl for function
     FriendDecl *FrD = FriendDecl::Create(
-        SemaRef.Context, ToPopulate, FriendFunction->getBeginLoc(),
-        FriendFunction, FriendFunction->getBeginLoc());
+					 SemaRef.Context, FriendFunctionLexDC, FriendFunction->getBeginLoc(),
+					 FriendFunction, FriendFunction->getBeginLoc());
 
     FrD->setAccess(AS_public);
     ToPopulate->addDecl(FrD);
+    //SemaRef.ActOnFinishInlineFunctionDef(FriendFunction);
+    //FriendFunction->getLexicalDeclContext()->addDecl(FriendFunction);
+    // SemaRef.MarkFunctionReferenced(FriendFunction->getLocation(), FriendFunction);
+
+    fprintf(
+        stderr,
+        "\n################### Friend DeclContext: %s #####################\n",
+        __func__);
+    FrD->getDeclContext()->dumpDeclContext();
+    fprintf(stderr,
+            "\n################### Friend Lexical DeclContext: %s "
+            "#####################\n",
+            __func__);
+    FrD->getLexicalDeclContext()->dumpDeclContext();
+    fprintf(stderr,
+            "\n################### Function DeclContext: %s "
+            "#####################\n",
+            __func__);
+    FriendFunction->getDeclContext()->dumpDeclContext();
+    fprintf(
+        stderr,
+        "\n################### Function Lexical: %s #####################\n",
+        __func__);
+    FriendFunction->getLexicalDeclContext()->dumpDeclContext();
 
     return true;
   }
