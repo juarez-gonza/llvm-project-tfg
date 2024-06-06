@@ -32,7 +32,8 @@
 
 * DONE Generar tipo derivado automáticamente.
 * DONE Implementar función libre para puntero o referencia a clase base generada por virtual concept.
-* TODO Dar soporte a funciones miembro
+* DONE Dar soporte a funciones miembro
+* TODO Dar soporte a qualified names en concepto
 * TODO DeclSpec en RHS o deducción en RHS donde el LHS sea el tipo base debe ser aceptada correctamente
 
   #+BEGIN_SRC C++

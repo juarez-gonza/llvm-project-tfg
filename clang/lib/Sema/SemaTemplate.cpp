@@ -12394,13 +12394,13 @@ public:
     assert(CompoundReq != nullptr && !MethodType.isNull());
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
-    // TODO: implemet support for method call
     auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto ReqCallExpArgs =
-      ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
+        ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
     std::string CalleeName = getCalleeName(SemaRef, ReqCallExp);
     const bool isMemberExpr = isDependentMemberCallExpr(ReqCallExp);
-    auto MethodName = (isMemberExpr ? "" : impl::virtual_concept_prefix) + CalleeName;
+    auto MethodName =
+        (isMemberExpr ? "" : impl::virtual_concept_prefix) + CalleeName;
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
     // Create the method
@@ -12429,12 +12429,8 @@ public:
     SemaRef.AddOverriddenMethods(ToPopulate, Method);
 
     // Define method's body
-    // TODO: implement support for member method (lookup will change,
-    // also we must get the underlying record decl -
-    // UnderlyingType.getTypePtr()->getAsRecordDecl() -)
-
     FunctionDecl *FD = lookupFunctionDeclOnUnderlyingType(
-							  CalleeName, ReqCallExpArgs, isMemberExpr);
+        CalleeName, ReqCallExpArgs, isMemberExpr);
     assert(FD != nullptr && "This should not be a nullptr");
     const auto *FDType = FD->getType()->castAs<FunctionType>();
     auto FDQType = QualType(FDType, 0);
@@ -12443,7 +12439,8 @@ public:
     auto *DRE = new (SemaRef.Context) DeclRefExpr(
         SemaRef.Context, FD, false, FDQType, VK_LValue, SourceLocation());
 
-    // More "boilerplate" in order to do a function call expression. This differs for member functions and free functions
+    // More "boilerplate" in order to do a function call expression. This
+    // differs for member functions and free functions
     auto *CallExp = [&]() -> CallExpr * {
       if (isMemberExpr) {
         auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
@@ -12544,11 +12541,6 @@ public:
   FunctionDecl *lookupFunctionDeclOnUnderlyingType(std::string CalleeName,
                                                    ArrayRef<Expr *> CallExpArgs,
                                                    bool lookupMemberName) {
-    // TODO: implement lookup for member method see
-    // Sema::LookupMemberName (might need to change the signature to
-    // accept an optional CXXRecordDecl - for the member method case
-    // -)
-
     auto &FunctionII = SemaRef.Context.Idents.get(CalleeName);
     LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
                         lookupMemberName ? Sema::LookupMemberName
@@ -12695,8 +12687,6 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
     // Concept on the UnderlyingType has already been checked
     return nullptr;
 
-  // TODO: check if this work for non built-in types
-
   // The virtual concept's derived type built from our UnderlyingType
   // must get defined on the UnderlyingType's DeclContext (if it's
   // user defined - tag -, otherwise it gets defined in the TU's
@@ -12783,8 +12773,7 @@ QualType Sema::getVirtualConceptDerived(ConceptDecl *Concept,
   auto VCDerivedName =
       tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType);
 
-  // Find the type in the context of the UnderlyingType (TODO: use the concept
-  // of the underlying type)
+  // Find the type in the context of the UnderlyingType
   auto VCDeducedIt = std::find_if(
       DeclCtx->decls_begin(), DeclCtx->decls_end(), [&VCDerivedName](Decl *D) {
         if (auto *R = dyn_cast<CXXRecordDecl>(D); R != nullptr)
