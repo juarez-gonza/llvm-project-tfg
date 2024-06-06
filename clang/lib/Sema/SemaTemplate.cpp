@@ -11842,11 +11842,22 @@ struct HasInstantiationDependentType {
   bool operator()(T *X) const {
     return isInstantiationDependent(X->getType());
   }
-}; // isInstantiationDependent
+}; // HasInstantiationDependentType
 } // namespace impl
 
 static constexpr inline auto hasInstantiationDependentType =
-    tfg::impl::HasInstantiationDependentType{};
+  tfg::impl::HasInstantiationDependentType{};
+
+namespace impl {
+struct IsDependentMemberCallExpr {
+  bool operator()(CallExpr *Call) const {
+    return llvm::isa<CXXDependentScopeMemberExpr>(Call->getRawSubExprs()[0]);
+  }
+}; // IsDependentMemberCallExpr
+} // namespace impl
+
+static constexpr inline auto isDependentMemberCallExpr =
+    tfg::impl::IsDependentMemberCallExpr{};
 
 namespace impl {
 struct CountInstantiationDependent {
@@ -11896,20 +11907,23 @@ public:
       if (R->getKind() != concepts::Requirement::RK_Compound)
         return false;
 
-      auto *CompoundReq = cast<concepts::ExprRequirement>(R);
-
       // Only CallExpr inside compound-requirement supported atm.
       // We check that the template param shows up only once, again.
-      if (auto *Call = dyn_cast<CallExpr>(CompoundReq->getExpr());
-          Call == nullptr || tfg::countInstantiationDependent(llvm::ArrayRef{
-            Call->getArgs(), Call->getNumArgs()}) != 1)
-	// TODO: implement support for method call requirements
-	// The following might help in identifying method calls (it
-	// might be smart to wrap it in a function to reuse it
-	// somewhere else)
-	// llvm::isa<CXXDependentScopeMemberExpr>(Call->getRawSubExprs()[0]);
+      auto *CompoundReq = cast<concepts::ExprRequirement>(R);
+      auto *Call = dyn_cast<CallExpr>(CompoundReq->getExpr());
+      if (Call == nullptr)
         return false;
 
+      // If it is not a member method call with 0 dependent arguments
+      // Nor a dependent call to a free function call with 1 dependent argument
+      // Then fail
+      auto Args = llvm::ArrayRef { Call->getArgs(), Call->getNumArgs() };
+      auto depArgCount = tfg::countInstantiationDependent(Args);
+      auto isMemberExpr = isDependentMemberCallExpr(Call);
+      if ((isMemberExpr && depArgCount > 0) || (!isMemberExpr && depArgCount != 1))
+	return false;
+
+      // Currently we require the return type of the concept to be specified
       if (auto &ReturnReq = CompoundReq->getReturnTypeRequirement();
           !ReturnReq.hasReturnTypeSourceInfo())
         return false;
@@ -11942,8 +11956,14 @@ namespace impl {
 std::string getCalleeName(Sema &SemaRef, CallExpr *CallExp) {
   std::string CalleeName;
   llvm::raw_string_ostream ss{CalleeName};
-  CallExp->getCallee()->printPretty(ss, nullptr,
-                                    PrintingPolicy(SemaRef.getLangOpts()));
+  if (isDependentMemberCallExpr(CallExp))
+    CalleeName =
+        llvm::cast<CXXDependentScopeMemberExpr>(CallExp->getRawSubExprs()[0])
+            ->getMemberNameInfo()
+            .getAsString();
+  else
+    CallExp->getCallee()->printPretty(ss, nullptr,
+                                      PrintingPolicy(SemaRef.getLangOpts()));
   return CalleeName;
 }
 
@@ -11996,13 +12016,16 @@ private:
 
   QualType ReqToMethodType(concepts::ExprRequirement *CompoundReq) {
     auto *Call = cast<CallExpr>(CompoundReq->getExpr());
+    auto Args = SmallVector<Expr *>{isDependentMemberCallExpr(Call)
+                                        ? Call->getNumArgs()
+                                        : Call->getNumArgs() - 1};
 
-    // TODO: Implement changes needed in order to support CallExpr being a method call
-
-    auto Args = SmallVector<Expr *>{Call->getNumArgs() - 1};
     for (auto *A : ArrayRef{Call->getArgs(), Call->getNumArgs()})
-      if (!hasInstantiationDependentType(
-              A)) // the instantiation dependent arg is `this` pointer
+      // The instantiation dependent arg is `this` pointer in the free
+      // function requirement. For member calls this branch is always taken
+      // since we checked that there were no instantiation dependend
+      // arguments
+      if (!hasInstantiationDependentType(A))
         Args.push_back(A);
 
     auto ArgTypes = SmallVector<QualType>{Args.size()};
@@ -12060,10 +12083,15 @@ public:
   bool DefineMethod(concepts::ExprRequirement *CompoundReq,
                     QualType MethodType) {
     assert(CompoundReq != nullptr && !MethodType.isNull());
+
     auto *CallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto *Callee = CallExp->getCallee();
     auto CalleeName = getCalleeName(SemaRef, CallExp);
-    auto MethodName = std::string{impl::virtual_concept_prefix} + CalleeName;
+    const bool isMemberExpr = isDependentMemberCallExpr(CallExp);
+    auto MethodName =
+        (isMemberExpr ? std::string{}
+                      : std::string{impl::virtual_concept_prefix}) +
+        CalleeName;
 
     // Create the method
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
@@ -12088,6 +12116,9 @@ public:
     SemaRef.CheckPureMethod(Method, SourceRange());
 
     // NOTE: Call PushOnScopeChains?
+
+    if (isMemberExpr)
+      return true;
 
     // On another chapter of things that wouldn't be necessary with
     // UFCS: Create friend function to allow calling as a free
@@ -12366,10 +12397,10 @@ public:
     // TODO: implemet support for method call
     auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto ReqCallExpArgs =
-        ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
+      ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
     std::string CalleeName = getCalleeName(SemaRef, ReqCallExp);
-
-    auto MethodName = impl::virtual_concept_prefix + CalleeName;
+    const bool isMemberExpr = isDependentMemberCallExpr(ReqCallExp);
+    auto MethodName = (isMemberExpr ? "" : impl::virtual_concept_prefix) + CalleeName;
     auto &MethodII = SemaRef.Context.Idents.get(MethodName);
 
     // Create the method
@@ -12386,8 +12417,6 @@ public:
     // Attach params and create call args
     SmallVector<ParmVarDecl *> Params =
         buildMethodParmVarDeclsFromMethodDecl(Method);
-    SmallVector<Expr *> Args =
-        buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
     Method->setParams(Params);
 
     // Set public
@@ -12404,27 +12433,55 @@ public:
     // also we must get the underlying record decl -
     // UnderlyingType.getTypePtr()->getAsRecordDecl() -)
 
-    FunctionDecl *FD =
-        lookupFunctionDeclOnUnderlyingType(CalleeName, ReqCallExpArgs);
+    FunctionDecl *FD = lookupFunctionDeclOnUnderlyingType(
+							  CalleeName, ReqCallExpArgs, isMemberExpr);
+    assert(FD != nullptr && "This should not be a nullptr");
     const auto *FDType = FD->getType()->castAs<FunctionType>();
     auto FDQType = QualType(FDType, 0);
 
-    // Create a reference to the declaration.
+    // Create a reference to the function declaration
     auto *DRE = new (SemaRef.Context) DeclRefExpr(
         SemaRef.Context, FD, false, FDQType, VK_LValue, SourceLocation());
 
-    // More "boilerplate" in order to do a function call expression
-    auto FPtr = SemaRef.Context.getPointerType(FDQType);
-    auto *ICE = ImplicitCastExpr::Create(
-        SemaRef.Context, FPtr, CK_FunctionToPointerDecay, DRE, nullptr,
-        VK_PRValue, FPOptionsOverride());
+    // More "boilerplate" in order to do a function call expression. This differs for member functions and free functions
+    auto *CallExp = [&]() -> CallExpr * {
+      if (isMemberExpr) {
+        auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
+                                            Method->getThisType(), true);
+        auto *DataFieldMemberExp = MemberExpr::Create(
+            SemaRef.Context, ThisExp, true, SourceLocation(), {},
+            SourceLocation(), DataField,
+            DeclAccessPair::make(DataField, AS_public), {}, {},
+            DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
 
-    // The actual call expression
-    auto *CallExp = CallExpr::Create(
-        SemaRef.Context, ICE, Args, FDType->getCallResultType(SemaRef.Context),
-        VK_PRValue, SourceLocation(), FPOptionsOverride());
+        auto *MD = llvm::cast<CXXMethodDecl>(FD);
+        auto *MethodExp = MemberExpr::Create(
+            SemaRef.Context, DataFieldMemberExp, true, SourceLocation(), {},
+            SourceLocation(), MD, DeclAccessPair::make(MD, AS_public), {}, {},
+            MD->getType(), VK_LValue, OK_Ordinary, NOUR_None);
 
-    // And the return statement
+        SmallVector<Expr *> Args =
+            buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
+        return CXXMemberCallExpr::Create(
+            SemaRef.Context, MethodExp, Args, MD->getCallResultType(),
+            VK_LValue, Method->getBeginLoc(), SemaRef.getCurFPFeatures());
+      }
+
+      auto FPtr = SemaRef.Context.getPointerType(FDQType);
+      auto *ICE = ImplicitCastExpr::Create(
+          SemaRef.Context, FPtr, CK_FunctionToPointerDecay, DRE, nullptr,
+          VK_PRValue, FPOptionsOverride());
+
+      // The actual call expression
+      SmallVector<Expr *> Args =
+          buildDelegatedCallExpArgs(Method, Params, ReqCallExpArgs);
+      return CallExpr::Create(SemaRef.Context, ICE, Args,
+                              FDType->getCallResultType(SemaRef.Context),
+                              VK_PRValue, SourceLocation(),
+                              FPOptionsOverride());
+    }();
+
+    // Create the return statement
     auto *RetStmt =
         ReturnStmt::Create(SemaRef.Context, SourceLocation(), CallExp, nullptr);
 
@@ -12442,9 +12499,8 @@ public:
     assert(Params.size() <= ReqCallExpArgs.size());
     int ParamIdx = 0;
     auto Map = [this, Method, Params, &ParamIdx](Expr *Arg) mutable {
-      if (!hasInstantiationDependentType(
-              Arg)) { // the instantiation dependent arg is `this` pointer
-                      // Expr in Args
+      // the instantiation dependent arg is `this` pointer Expr in Args
+      if (!hasInstantiationDependentType(Arg)) {
         auto *P = Params[ParamIdx++];
         auto *DRE = new (SemaRef.Context)
             DeclRefExpr(SemaRef.Context, P, false, Arg->getType(), VK_LValue,
@@ -12485,25 +12541,33 @@ public:
     return Args;
   }
 
-  FunctionDecl *
-  lookupFunctionDeclOnUnderlyingType(std::string CalleeName,
-                                     ArrayRef<Expr *> CallExpArgs) {
+  FunctionDecl *lookupFunctionDeclOnUnderlyingType(std::string CalleeName,
+                                                   ArrayRef<Expr *> CallExpArgs,
+                                                   bool lookupMemberName) {
     // TODO: implement lookup for member method see
     // Sema::LookupMemberName (might need to change the signature to
     // accept an optional CXXRecordDecl - for the member method case
     // -)
-    auto &FunctionII = SemaRef.Context.Idents.get(std::move(CalleeName));
-    LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
-                        Sema::LookupOrdinaryName);
 
-    if (!SemaRef.LookupName(
-            lookup, SemaRef.getScopeForContext(ToPopulate->getDeclContext())) ||
-        lookup.isAmbiguous() || lookup.empty()) {
-      // TODO: handle this failure
-      // Lookup failed, the underlying type is not suitable for being a
-      // declcontext
+    auto &FunctionII = SemaRef.Context.Idents.get(CalleeName);
+    LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
+                        lookupMemberName ? Sema::LookupMemberName
+                                         : Sema::LookupOrdinaryName);
+
+    lookup.suppressDiagnostics();
+    bool lookupResult =
+        lookupMemberName
+            ? SemaRef.LookupQualifiedName(lookup,
+                                          UnderlyingType->getAsCXXRecordDecl())
+            : SemaRef.LookupName(lookup, SemaRef.getScopeForContext(
+                                             ToPopulate->getDeclContext()));
+
+    if (!lookupResult || lookup.isAmbiguous() || lookup.empty())
+      // Lookup failed, the underlying type is not suitable for being
+      // a virtual concept. Since the concept is check prior to this,
+      // i doubt this branch will ever get taken by anyhting but bugs
       return nullptr;
-    }
+
 
     { // start of lookupFilter scope
       // Filter out deductions
@@ -12552,11 +12616,10 @@ public:
       lookupFilter.done();
     } // end of lookupFilter scope
 
-    if (!lookup.isSingleResult()) {
+    if (!lookup.isSingleResult())
       // NOTE: can this failure even happen? At this point the
       // concept has already been checked for the UnderlyingType
       return nullptr;
-    }
 
     return lookup.getAsSingle<FunctionDecl>();
   }
