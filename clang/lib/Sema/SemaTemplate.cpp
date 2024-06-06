@@ -11902,7 +11902,12 @@ public:
       // We check that the template param shows up only once, again.
       if (auto *Call = dyn_cast<CallExpr>(CompoundReq->getExpr());
           Call == nullptr || tfg::countInstantiationDependent(llvm::ArrayRef{
-                                 Call->getArgs(), Call->getNumArgs()}) != 1)
+            Call->getArgs(), Call->getNumArgs()}) != 1)
+	// TODO: implement support for method call requirements
+	// The following might help in identifying method calls (it
+	// might be smart to wrap it in a function to reuse it
+	// somewhere else)
+	// llvm::isa<CXXDependentScopeMemberExpr>(Call->getRawSubExprs()[0]);
         return false;
 
       if (auto &ReturnReq = CompoundReq->getReturnTypeRequirement();
@@ -11991,6 +11996,8 @@ private:
 
   QualType ReqToMethodType(concepts::ExprRequirement *CompoundReq) {
     auto *Call = cast<CallExpr>(CompoundReq->getExpr());
+
+    // TODO: Implement changes needed in order to support CallExpr being a method call
 
     auto Args = SmallVector<Expr *>{Call->getNumArgs() - 1};
     for (auto *A : ArrayRef{Call->getArgs(), Call->getNumArgs()})
@@ -12085,7 +12092,8 @@ public:
     // On another chapter of things that wouldn't be necessary with
     // UFCS: Create friend function to allow calling as a free
     // function (NOTE: this is only needed when the callee is a free
-    // function in the compound requirement of the concept)
+    // function in the compound requirement of the concept, method
+    // calls do not need this)
 
     // Create Function Decl.
 
@@ -12355,6 +12363,7 @@ public:
     assert(CompoundReq != nullptr && !MethodType.isNull());
     // Get the compound requirement callee name, this will be used to
     // create the virtual method
+    // TODO: implemet support for method call
     auto *ReqCallExp = cast<CallExpr>(CompoundReq->getExpr());
     auto ReqCallExpArgs =
         ArrayRef{ReqCallExp->getArgs(), ReqCallExp->getNumArgs()};
@@ -12391,6 +12400,9 @@ public:
     SemaRef.AddOverriddenMethods(ToPopulate, Method);
 
     // Define method's body
+    // TODO: implement support for member method (lookup will change,
+    // also we must get the underlying record decl -
+    // UnderlyingType.getTypePtr()->getAsRecordDecl() -)
 
     FunctionDecl *FD =
         lookupFunctionDeclOnUnderlyingType(CalleeName, ReqCallExpArgs);
@@ -12476,6 +12488,10 @@ public:
   FunctionDecl *
   lookupFunctionDeclOnUnderlyingType(std::string CalleeName,
                                      ArrayRef<Expr *> CallExpArgs) {
+    // TODO: implement lookup for member method see
+    // Sema::LookupMemberName (might need to change the signature to
+    // accept an optional CXXRecordDecl - for the member method case
+    // -)
     auto &FunctionII = SemaRef.Context.Idents.get(std::move(CalleeName));
     LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
                         Sema::LookupOrdinaryName);
