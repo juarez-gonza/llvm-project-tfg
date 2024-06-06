@@ -47,51 +47,57 @@ private:
 int m;
 public:
 explicit Asd(int x = 1) : m{1} {}
+int foo() {
+  puts("Asd::foo\n");
+  return 0;
+}
 ~Asd() {
-  puts("~Asd()\n");
+  //puts("~Asd()\n");
 }
 };
 
 int use(Asd x) {
-  puts("use Asd\n");
+  puts("use(Asd)\n");
   return 0;
 }
 
-int use(char x) {
-  puts("use char\n");
-  return x;
-}
+//int use(char x) {
+//  puts("use char\n");
+//  return x;
+//}
 
 template<typename T>
 concept Usable = requires(T x) {
   { use(x) } -> int;
+  { x.foo() } -> int;
 };
 
 void use_usable(Usable virtual *x) {
   use(*x);
+  x->foo();
 }
 
-template <typename T>
-struct ptr {
-  T* x;
-  T* operator->() {
-    return x;
-  }
+//template <typename T>
+//struct ptr {
+//  T* x;
+//  T* operator->() {
+//    return x;
+//  }
+//
+//  T& operator*() {
+//    return *x;
+//  }
+//};
 
-  T& operator*() {
-    return *x;
-  }
-};
-
-void use_usable_ptr(ptr<Usable virtual> x) {
-  use(*x);
-}
+//void use_usable_ptr(ptr<Usable virtual> x) {
+//  use(*x);
+//}
 
 int main() {
-  Usable virtual c('a');
+  //Usable virtual c('a');
   Usable virtual d(Asd{1});
-  use_usable_ptr(ptr<Usable virtual>(&c));
+  //use_usable_ptr(ptr<Usable virtual>(&c));
   use_usable(&d);
-  use_usable(&c);
+  //use_usable(&c);
   return 0;
 }

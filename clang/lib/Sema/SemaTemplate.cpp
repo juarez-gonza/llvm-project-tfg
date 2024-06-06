@@ -12449,14 +12449,14 @@ public:
         auto *ThisExp = CXXThisExpr::Create(SemaRef.Context, SourceLocation(),
                                             Method->getThisType(), true);
         auto *DataFieldMemberExp = MemberExpr::Create(
-            SemaRef.Context, ThisExp, true, SourceLocation(), {},
+            SemaRef.Context, ThisExp, false, SourceLocation(), {},
             SourceLocation(), DataField,
             DeclAccessPair::make(DataField, AS_public), {}, {},
             DataField->getType(), VK_LValue, OK_Ordinary, NOUR_None);
 
         auto *MD = llvm::cast<CXXMethodDecl>(FD);
         auto *MethodExp = MemberExpr::Create(
-            SemaRef.Context, DataFieldMemberExp, true, SourceLocation(), {},
+            SemaRef.Context, DataFieldMemberExp, false, SourceLocation(), {},
             SourceLocation(), MD, DeclAccessPair::make(MD, AS_public), {}, {},
             MD->getType(), VK_LValue, OK_Ordinary, NOUR_None);
 
