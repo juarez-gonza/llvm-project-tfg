@@ -47,8 +47,8 @@ private:
 int m;
 public:
 explicit Asd(int x = 1) : m{1} {}
-int foo() {
-  puts("Asd::foo\n");
+int foo(int x) {
+  puts("Asd::foo(int)\n");
   return 0;
 }
 ~Asd() {
@@ -56,8 +56,8 @@ int foo() {
 }
 };
 
-int use(Asd x) {
-  puts("use(Asd)\n");
+int use(Asd x, double y) {
+  puts("use(Asd, double)\n");
   return 0;
 }
 
@@ -68,13 +68,14 @@ int use(Asd x) {
 
 template<typename T>
 concept Usable = requires(T x) {
-  { use(x) } -> int;
-  { x.foo() } -> int;
+  { use(x, 1.0) } -> int;
+  { x.foo(1) } -> int;
 };
 
-void use_usable(Usable virtual *x) {
-  use(*x);
-  x->foo();
+void use_usable(Usable virtual &x) {
+  double y = 1.0;
+  use(x, y);
+  x.foo(1);
 }
 
 //template <typename T>
@@ -97,7 +98,7 @@ int main() {
   //Usable virtual c('a');
   Usable virtual d(Asd{1});
   //use_usable_ptr(ptr<Usable virtual>(&c));
-  use_usable(&d);
+  use_usable(d);
   //use_usable(&c);
   return 0;
 }

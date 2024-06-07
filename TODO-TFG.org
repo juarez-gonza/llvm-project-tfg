@@ -33,6 +33,8 @@
 * DONE Generar tipo derivado automáticamente.
 * DONE Implementar función libre para puntero o referencia a clase base generada por virtual concept.
 * DONE Dar soporte a funciones miembro
+* DONE Soportar múltiples parámetros (de tipos no dependientes)
+* TODO Propagar noexcept y constness en funciones generadas
 * TODO DeclSpec en RHS o deducción en RHS donde el LHS sea el tipo base debe ser aceptada correctamente
 
   #+BEGIN_SRC C++
@@ -41,7 +43,6 @@
     auto *y = x; // y's type must deduce to virtual concept base type
   #+END_SRC
 
-* TODO Propagar noexcept
 * TODO ¿Asegurar forwarding de value category en funciones generadas automáticamente? Ver comentarios
 
 Debatir factibilidad

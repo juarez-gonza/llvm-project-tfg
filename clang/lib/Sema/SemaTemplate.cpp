@@ -12016,10 +12016,8 @@ private:
 
   QualType ReqToMethodType(concepts::ExprRequirement *CompoundReq) {
     auto *Call = cast<CallExpr>(CompoundReq->getExpr());
-    auto Args = SmallVector<Expr *>{isDependentMemberCallExpr(Call)
-                                        ? Call->getNumArgs()
-                                        : Call->getNumArgs() - 1};
 
+    SmallVector<Expr *> Args;
     for (auto *A : ArrayRef{Call->getArgs(), Call->getNumArgs()})
       // The instantiation dependent arg is `this` pointer in the free
       // function requirement. For member calls this branch is always taken
@@ -12028,9 +12026,9 @@ private:
       if (!hasInstantiationDependentType(A))
         Args.push_back(A);
 
-    auto ArgTypes = SmallVector<QualType>{Args.size()};
-    for (auto *Arg : Args)
-      ArgTypes.push_back(Arg->getType());
+    SmallVector<QualType> ArgTypes;
+    std::transform(Args.begin(), Args.end(), std::back_inserter(ArgTypes),
+                   [](Expr *A) { return A->getType(); });
 
     // Get return type constraint
     const auto *ReturnTypeInfo =
@@ -12200,10 +12198,17 @@ public:
     SmallVector<Expr *> ParamsDRE;
     for (auto *P : FriendFunction->parameters())
       if (!SemaRef.Context.hasSameUnqualifiedType(P->getType(), ThisRefType)) {
-	P->markUsed(SemaRef.Context);
-        ParamsDRE.push_back(new (SemaRef.Context) DeclRefExpr(
-            SemaRef.Context, P, false, P->getType(), VK_LValue,
-							      FriendFunction->getLocation()));
+        P->markUsed(SemaRef.Context);
+        auto *DRE = new (SemaRef.Context)
+            DeclRefExpr(SemaRef.Context, P, false, P->getType(), VK_LValue,
+                        FriendFunction->getLocation());
+        CastKind CK = P->getType()->getAsCXXRecordDecl() != nullptr
+                          ? CK_NoOp
+                          : CK_LValueToRValue;
+        auto *ICE =
+            ImplicitCastExpr::Create(SemaRef.Context, P->getType(), CK, DRE,
+                                     nullptr, VK_PRValue, FPOptionsOverride());
+        ParamsDRE.push_back(ICE);
       }
 
     auto *MemberExp = SemaRef.BuildMemberExpr(
@@ -12244,18 +12249,20 @@ public:
                              const concepts::ExprRequirement *CompoundReq) {
     assert(Method != nullptr && CompoundReq != nullptr);
     auto *Call = cast<CallExpr>(CompoundReq->getExpr());
-    auto ArgTypes = SmallVector<QualType>{Call->getNumArgs() - 1};
+
     auto CallExpArgs = ArrayRef{Call->getArgs(), Call->getNumArgs()};
-    std::transform(
-        CallExpArgs.begin(), CallExpArgs.end(), std::back_inserter(ArgTypes),
-        [this, Method](decltype(*CallExpArgs.begin()) A) -> QualType {
-          return !hasInstantiationDependentType(A)
-                     ? A->getType()
-                     : SemaRef.Context.getLValueReferenceType(
-                           Method->getThisType()
-                               .getTypePtr()
-                               ->getPointeeType());
-        });
+
+    SmallVector<QualType> ArgTypes;
+    std::transform(CallExpArgs.begin(), CallExpArgs.end(),
+                   std::back_inserter(ArgTypes),
+                   [this, Method](Expr *A) -> QualType {
+                     return !hasInstantiationDependentType(A)
+                                ? A->getType()
+                                : SemaRef.Context.getLValueReferenceType(
+                                      Method->getThisType()
+                                          .getTypePtr()
+                                          ->getPointeeType());
+                   });
 
     // Get return type constraint
     const auto *ReturnTypeInfo =

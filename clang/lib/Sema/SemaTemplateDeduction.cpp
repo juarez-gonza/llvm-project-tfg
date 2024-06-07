@@ -5155,8 +5155,8 @@ QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
   // Precondition: at this point the concept has already been checked on the UnderlyingType
   assert(Concept != nullptr);
 
-  // TODO: use some actual pattern matching or something instead of checking for
-  // a pointer depth of 1. See how auto or typename T do deduction on auto*
+  // TODO: It seems this is unnecessary, the deduced type may have
+  // already its pointer/ref qualifier information stripped
   auto *UnqualifiedUnderlyingType =
       DeducedType.getTypePtr()->isPointerType()
           ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
