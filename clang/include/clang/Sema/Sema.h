@@ -8876,6 +8876,7 @@ public:
   QualType findOrInstantiateVirtualConceptBase(ConceptDecl *Concept);
   QualType findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                                                   const Type *UnderlyingType);
+  QualType getVirtualConceptBaseFromDerived(const Type* T);
 
   //===--------------------------------------------------------------------===//
   // C++ Variadic Templates (C++0x [temp.variadic])

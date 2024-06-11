@@ -297,6 +297,12 @@ private:
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsLambda : 1;
 
+    // tfg gonzalo juarez start
+    // Whether this class corresponds to a virtual concept
+    unsigned IsVirtualConceptDerived : 1;
+    unsigned IsVirtualConceptBase : 1;
+    // tfg gonzalo juarez end
+
     /// Whether we are currently parsing base specifiers.
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsParsingBaseSpecifiers : 1;
@@ -1014,6 +1020,22 @@ public:
   bool needsImplicitDestructor() const {
     return !(data().DeclaredSpecialMembers & SMF_Destructor);
   }
+
+  // tfg gonzalo juarez start
+
+  /// Set class as a virtual concept derived class
+  void setAsVirtualConceptDerived()  { data().IsVirtualConceptDerived = true; }
+
+  /// Set class as a virtual concept base class
+  void setAsVirtualConceptBase()  { data().IsVirtualConceptBase = true; }
+
+  /// Check whether this class is a virtual concept derived class or not
+  bool isVirtualConceptDerived() const { return data().IsVirtualConceptDerived; }
+
+  /// Check whether this class is a virtual concept base class or not
+  bool isVirtualConceptBase() const { return data().IsVirtualConceptDerived; }
+
+  // tfg gonzalo juarez end
 
   /// Determine whether we need to eagerly declare a destructor for this
   /// class.

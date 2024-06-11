@@ -47,7 +47,7 @@ private:
 int m;
 public:
 explicit Asd(int x = 1) : m{1} {}
-int foo(int x) {
+int foo(int x) const {
   puts("Asd::foo(int)\n");
   return 0;
 }
@@ -97,6 +97,8 @@ void use_usable(Usable virtual &x) {
 int main() {
   //Usable virtual c('a');
   Usable virtual d(Asd{1});
+  Usable virtual &b = d;
+  b.foo(2);
   //use_usable_ptr(ptr<Usable virtual>(&c));
   use_usable(d);
   //use_usable(&c);

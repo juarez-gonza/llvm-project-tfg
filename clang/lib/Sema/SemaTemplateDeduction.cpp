@@ -5112,14 +5112,28 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
       Result = QualType();
       return TDK_Invalid;
     }
+    bool isRHSaVC = [&DeducedType]() {
+      auto *UnderlyingType =
+          DeducedType.getTypePtr()->isPointerType()
+              ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
+              : DeducedType.getTypePtr();
+      auto *RD = UnderlyingType->getAsCXXRecordDecl();
+      if (RD != nullptr)
+        return RD->isVirtualConceptBase() || RD->isVirtualConceptDerived();
+      return false;
+    }();
     DeducedType =
-        DeduceVirtualConceptType(DeducedType, AT->getTypeConstraintConcept());
+      DeduceVirtualConceptType(DeducedType, AT->getTypeConstraintConcept());
     if (DeducedType.isNull()) {
       Result = QualType();
       return TDK_Invalid;
     }
-    if (PerformImplicitConversion(Init, DeducedType, {}).isInvalid())
-      return TDK_Invalid;
+
+    // Perform implicit conversion if right hand side is not already a
+    // virtual concept base or derived
+    if (!isRHSaVC)
+      if (PerformImplicitConversion(Init, DeducedType, {}).isInvalid())
+        return TDK_Invalid;
     Result = SubstituteDeducedTypeTransform(*this, DeducedType).Apply(Type);
     return TDK_Success;
   }
@@ -5152,7 +5166,8 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
 QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
                                         ConceptDecl *Concept) {
   // Find the underlying type of the deduced concept
-  // Precondition: at this point the concept has already been checked on the UnderlyingType
+  // Precondition: at this point the concept has already been checked on the
+  // UnderlyingType
   assert(Concept != nullptr);
 
   // TODO: It seems this is unnecessary, the deduced type may have
@@ -5160,10 +5175,32 @@ QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
   auto *UnqualifiedUnderlyingType =
       DeducedType.getTypePtr()->isPointerType()
           ? DeducedType.getTypePtr()->getPointeeType().getTypePtr()
-      : DeducedType.getTypePtr();
+          : DeducedType.getTypePtr();
 
+  // Return the adequate virtual concept's derived class (add pointer
+  // if necessary, modify when the TODO for using actual pattern
+  // matching on pointers like auto is done)
+  auto Return = [&DeducedType, this](QualType RetType) {
+    const Type *RetT = RetType.getTypePtr();
+    return DeducedType.getTypePtr()->isPointerType()
+               ? Context.getPointerType(QualType(RetT, 0))
+               : QualType(RetT, 0);
+  };
+
+  // If the right hand side already is a virtual concept type, then do not nest
+  // it inside another virtual concept
+
+  if (auto *RD = UnqualifiedUnderlyingType->getAsCXXRecordDecl();
+      RD != nullptr) {
+    if (RD->isVirtualConceptDerived())
+      return Return(getVirtualConceptBaseFromDerived(UnqualifiedUnderlyingType));
+    if (RD->isVirtualConceptBase())
+      return Return(DeducedType);
+  }
+
+  // otherwise, find or create a virtual concept
   auto VCDerivedType = findOrInstantiateVirtualConceptDerived(
-							      Concept, UnqualifiedUnderlyingType);
+      Concept, UnqualifiedUnderlyingType);
   if (VCDerivedType.isNull()) {
     // Report Diagnose failure to instantiate virtual concept. Since the concept
     // has already been checked on the underlying type at this point, the only
@@ -5174,13 +5211,7 @@ QualType Sema::DeduceVirtualConceptType(QualType DeducedType,
     return {};
   }
 
-  // Return the adequate virtual concept's derived class (add pointer
-  // if necessary, modify when the TODO for using actual pattern
-  // matching on pointers like auto is done)
-  const Type *VCType = VCDerivedType.getTypePtr();
-  return DeducedType.getTypePtr()->isPointerType()
-             ? Context.getPointerType(QualType(VCType, 0))
-             : QualType(VCType, 0);
+  return Return(VCDerivedType);
 }
 
 TypeResult Sema::setVirtualConceptDeclSpec(DeclSpec &DS) {

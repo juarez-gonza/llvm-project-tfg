@@ -11834,6 +11834,10 @@ static constexpr inline auto isInstantiationDependent = [](QualType Ty) {
   return Ty->isTemplateTypeParmType() || Ty->isInstantiationDependentType();
 };
 
+static constexpr inline auto HasVirtualConceptPrefix = [](const StringRef str) {
+  return str.starts_with(impl::virtual_concept_prefix);
+};
+
 namespace impl {
 struct HasInstantiationDependentType {
   template <typename T,
@@ -12658,6 +12662,7 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
                             D->getLocation(), BaseII);
   Base->startDefinition();
   Base->setImplicit(true);
+  Base->setAsVirtualConceptBase();
 
   // Populate with methods
   if (!tfg::populateVirtualConceptBase(*this, D, Base))
@@ -12717,6 +12722,7 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
                             SourceLocation(), DerivedII);
   Derived->startDefinition();
   Derived->setImplicit(true);
+  Derived->setAsVirtualConceptDerived();
 
   // Create and add base specifier
   auto *BaseSpecifier = new (Context) CXXBaseSpecifier(
@@ -12829,6 +12835,19 @@ Sema::findOrInstantiateVirtualConceptDerived(ConceptDecl *Concept,
       return {};
   }
   return VCType;
+}
+
+QualType
+Sema::getVirtualConceptBaseFromDerived(const Type* T) {
+  // Caller can assert prerequisite by calling isVirtualConceptDerived() on a given CXXRecorDecl
+  assert(T->getAsCXXRecordDecl() &&
+         T->getAsCXXRecordDecl()->isVirtualConceptDerived() &&
+         "Cannot get a virtual concept base from a type that is not a virtual "
+         "concept derived");
+  auto *RD = T->getAsCXXRecordDecl();
+  // Dereferencing begin cannot fail by construction of the derived class
+  auto BaseSpec  = *RD->bases_begin();
+  return BaseSpec.getType();
 }
 
 //===--------------------------------------------------------------------===//
