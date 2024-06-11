@@ -94,10 +94,14 @@ void use_usable(Usable virtual &x) {
 //  use(*x);
 //}
 
+Usable virtual &ret(Usable virtual *x) {
+  return *x;
+}
+
 int main() {
   //Usable virtual c('a');
   Usable virtual d(Asd{1});
-  Usable virtual &b = d;
+  Usable virtual &b = ret(&d);
   b.foo(2);
   //use_usable_ptr(ptr<Usable virtual>(&c));
   use_usable(d);

@@ -1033,7 +1033,7 @@ public:
   bool isVirtualConceptDerived() const { return data().IsVirtualConceptDerived; }
 
   /// Check whether this class is a virtual concept base class or not
-  bool isVirtualConceptBase() const { return data().IsVirtualConceptDerived; }
+  bool isVirtualConceptBase() const { return data().IsVirtualConceptBase; }
 
   // tfg gonzalo juarez end
 
