@@ -12653,9 +12653,8 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
   // The generated class "leaks" to the outer scope of the concept context
   // sort of like enum members do. Get the parent scope of the concept
   // definition
-  Scope *BaseParentScope = getScopeForContext(D->getDeclContext());
 
-  auto *DC = BaseParentScope->getEntity();
+  auto *DC = D->getDeclContext();
   auto *BaseII = &Context.Idents.get(tfg::ToVirtualConceptBaseName(D));
   auto *Base =
       CXXRecordDecl::Create(Context, TagTypeKind::Class, DC, D->getLocation(),
@@ -12673,6 +12672,8 @@ CXXRecordDecl *Sema::TryInstantiateVirtualConceptBase(ConceptDecl *D) {
 
   // Finish base class definition
   Base->completeDefinition();
+
+  Scope *BaseParentScope = getScopeForContext(DC);
   CheckCompletedCXXClass(BaseParentScope, Base);
 
   // Add Base to Concept's DeclContext

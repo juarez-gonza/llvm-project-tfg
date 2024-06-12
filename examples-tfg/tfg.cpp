@@ -70,17 +70,17 @@ int use(Asd x, double y) {
 //  return x;
 //}
 
-//namespace B {
-//
+namespace B {
+
 template<typename T>
 concept Usable = requires(T x) {
   { use(x, 1.0) } -> int;
   { x.foo(1) } -> int;
 };
-//
-//}
 
-void use_usable(/*B::*/Usable virtual &x) {
+} // namespace B
+
+void use_usable(B::Usable virtual &x) {
   double y = 1.0;
   use(x, y);
   x.foo(1);
@@ -103,14 +103,14 @@ void use_usable(/*B::*/Usable virtual &x) {
 //  use(*x);
 //}
 
-Usable virtual &ret(Usable virtual *x) {
+B::Usable virtual &ret(B::Usable virtual *x) {
   return *x;
 }
 
 int main() {
   //Usable virtual c('a');
-  Usable virtual d(A::Asd{1});
-  Usable virtual &b = ret(&d);
+  B::Usable virtual d(A::Asd{1});
+  B::Usable virtual &b = ret(&d);
   b.foo(2);
   //use_usable_ptr(ptr<Usable virtual>(&c));
   use_usable(d);
