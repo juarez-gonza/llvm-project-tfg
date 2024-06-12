@@ -42,6 +42,8 @@ concept Unusable = requires(T x, int y) {
 };
 */
 
+namespace A {
+
 struct Asd {
 private:
 int m;
@@ -61,22 +63,29 @@ int use(Asd x, double y) {
   return 0;
 }
 
+} // namespace A
+
 //int use(char x) {
 //  puts("use char\n");
 //  return x;
 //}
 
+//namespace B {
+//
 template<typename T>
 concept Usable = requires(T x) {
   { use(x, 1.0) } -> int;
   { x.foo(1) } -> int;
 };
+//
+//}
 
-void use_usable(Usable virtual &x) {
+void use_usable(/*B::*/Usable virtual &x) {
   double y = 1.0;
   use(x, y);
   x.foo(1);
 }
+
 
 //template <typename T>
 //struct ptr {
@@ -100,7 +109,7 @@ Usable virtual &ret(Usable virtual *x) {
 
 int main() {
   //Usable virtual c('a');
-  Usable virtual d(Asd{1});
+  Usable virtual d(A::Asd{1});
   Usable virtual &b = ret(&d);
   b.foo(2);
   //use_usable_ptr(ptr<Usable virtual>(&c));

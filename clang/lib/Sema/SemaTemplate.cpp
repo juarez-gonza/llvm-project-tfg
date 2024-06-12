@@ -12556,14 +12556,14 @@ public:
     LookupResult lookup(SemaRef, DeclarationName{&FunctionII}, SourceLocation(),
                         lookupMemberName ? Sema::LookupMemberName
                                          : Sema::LookupOrdinaryName);
-
     lookup.suppressDiagnostics();
     bool lookupResult =
         lookupMemberName
             ? SemaRef.LookupQualifiedName(lookup,
                                           UnderlyingType->getAsCXXRecordDecl())
-            : SemaRef.LookupName(lookup, SemaRef.getScopeForContext(
-                                             ToPopulate->getDeclContext()));
+            : SemaRef.LookupQualifiedName(
+                  lookup,
+                  UnderlyingType->getAsCXXRecordDecl()->getDeclContext());
 
     if (!lookupResult || lookup.isAmbiguous() || lookup.empty())
       // Lookup failed, the underlying type is not suitable for being
@@ -12699,21 +12699,19 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
     // Concept on the UnderlyingType has already been checked
     return nullptr;
 
-  // The virtual concept's derived type built from our UnderlyingType
-  // must get defined on the UnderlyingType's DeclContext (if it's
-  // user defined - tag -, otherwise it gets defined in the TU's
-  // context)
-  auto *DeclCtx = UnderlyingType->isBuiltinType()
-                      ? Context.getTranslationUnitDecl()
-                      : UnderlyingType->getAsTagDecl()->getDeclContext();
-  auto *DerivedScope = getScopeForContext(DeclCtx);
-
   // Create BaseSpecifier for virtual concept's base
 
   TypeSourceInfo *VCBaseSrcInfo = Context.CreateTypeSourceInfo(BaseT);
 
   // Create Type
-  auto *DC = DerivedScope->getEntity();
+
+  // The virtual concept's derived type built from our UnderlyingType
+  // must get defined on the UnderlyingType's DeclContext (if it's
+  // user defined - tag -, otherwise it gets defined in the TU's
+  // context)
+  auto *DC = UnderlyingType->isBuiltinType()
+                 ? Context.getTranslationUnitDecl()
+                 : UnderlyingType->getAsTagDecl()->getDeclContext();
   auto *DerivedII = &Context.Idents.get(
       tfg::ToVirtualConceptDerivedName(Concept, UnderlyingType));
 
@@ -12740,6 +12738,8 @@ Sema::TryInstantiateVirtualConceptDerived(ConceptDecl *Concept,
 
   // Finish class definition
   Derived->completeDefinition();
+
+  auto *DerivedScope = getScopeForContext(DC);
   CheckCompletedCXXClass(DerivedScope, Derived);
 
   // Add Derived to UnderlyingType's declcontext
