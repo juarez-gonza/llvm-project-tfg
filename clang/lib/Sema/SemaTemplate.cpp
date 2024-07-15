@@ -12388,9 +12388,9 @@ public:
       SemaRef.PushOnScopeChains(Ctor, S, false);
     ToPopulate->addDecl(Ctor);
 
-    if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor,
-                                          nullptr))
-      SemaRef.SetDeclDeleted(Ctor, ClassLoc);
+    // if (SemaRef.ShouldDeleteSpecialMember(Ctor, Sema::CXXDefaultConstructor,
+    //                                       nullptr))
+    //   SemaRef.SetDeclDeleted(Ctor, ClassLoc);
     return true;
   }
 

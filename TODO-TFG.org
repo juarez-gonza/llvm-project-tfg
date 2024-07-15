@@ -35,7 +35,7 @@
 * DONE Dar soporte a funciones miembro
 * DONE Soportar múltiples parámetros (de tipos no dependientes)
 * TODO Propagar noexcept y constness en funciones generadas
-* TODO DeclSpec en RHS o deducción en RHS donde el LHS sea el tipo base debe ser aceptada correctamente
+* DONE DeclSpec en RHS o deducción en RHS donde el LHS sea el tipo base debe ser aceptada correctamente
 
   #+BEGIN_SRC C++
     SomeConcept virtual *foo(); // return type must deduce to virtual concept base type
@@ -49,7 +49,7 @@ Debatir factibilidad
 Hacer pruebas
 ¿Cómo se implementaría con clase virtual y clases concretas derivadas?
 
-* TODO ¿Dar soporte a qualified names en concepto? Ver comentarios
+* DONE ¿Dar soporte a qualified names en concepto? Ver comentarios
 
 ¿Abrir calificador e introducir definición de función para el concepto
 virtual? No siempre es factible o deseable

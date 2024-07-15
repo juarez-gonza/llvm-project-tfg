@@ -1,6 +1,7 @@
 //#include <iostream>
 // #include <string>
-#include <stdio.h>
+//#include <stdio.h>
+
 //#include <memory>
 
 /*
@@ -48,18 +49,18 @@ struct Asd {
 private:
 int m;
 public:
-explicit Asd(int x = 1) : m{1} {}
+/*explicit*/ Asd(int x) : m{1} {}
 int foo(int x) const {
-  puts("Asd::foo(int)\n");
+  //puts("Asd::foo(int)\n");
   return 0;
 }
-~Asd() {
-  //puts("~Asd()\n");
-}
+//~Asd() {
+//  //puts("~Asd()\n");
+//}
 };
 
 int use(Asd x, double y) {
-  puts("use(Asd, double)\n");
+  //puts("use(Asd, double)\n");
   return 0;
 }
 
@@ -87,17 +88,17 @@ void use_usable(B::Usable virtual &x) {
 }
 
 
-//template <typename T>
-//struct ptr {
-//  T* x;
-//  T* operator->() {
-//    return x;
-//  }
-//
-//  T& operator*() {
-//    return *x;
-//  }
-//};
+template <typename T>
+struct ptr {
+  T* x;
+  T* operator->() {
+    return x;
+  }
+
+  T& operator*() {
+    return *x;
+  }
+};
 
 //void use_usable_ptr(ptr<Usable virtual> x) {
 //  use(*x);
@@ -110,6 +111,7 @@ B::Usable virtual &ret(B::Usable virtual *x) {
 int main() {
   //Usable virtual c('a');
   B::Usable virtual d(A::Asd{1});
+  ptr<B::Usable virtual> x{&d};
   B::Usable virtual &b = ret(&d);
   b.foo(2);
   //use_usable_ptr(ptr<Usable virtual>(&c));
